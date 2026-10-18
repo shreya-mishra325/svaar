@@ -1,4 +1,4 @@
-![Svaar](https://github.com/RohanOnKeys/cerebro/blob/main/assets/Abstract%20Color%20Composition%20Photo%20on%20Lummi.jpg)
+![Svaar](https://github.com/RohanOnKeys/cerebro/blob/main/assets/Copy%20of%20Svaar.gif?raw=true)
 
 # Svaar
 
