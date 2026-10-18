@@ -1,89 +1,220 @@
-# Svaar checkpoints
+# Svaar phase checkpoints
 
 Last reviewed: 2026-10-18 (Asia/Calcutta).
 
-## Purpose and reading order
+## How to use this checklist
 
-This is a shared implementation checkpoint, not a replacement for requirements.
-At task start, read `rules.md`, `PLAN.md`, this file, and `anomaly.md`, then inspect the code
-and local changes relevant to the task. Read `CEREBRO_CONTEXT.md` only when a
-Cerebro reference pattern is relevant. Cerebro's source is not in this workspace.
+Read `rules.md`, `PLAN.md`, this file and `anomaly.md` before starting a task.
+PLAN.md defines requirements; this file tracks implementation phase by phase.
+Inspect current code and local edits before relying on a checkbox. Include this
+reading order in agent tasks; these documents are not automatically loaded.
 
-`PLAN.md` defines the target; executable code and executed checks establish what
-exists. A package, protocol, configuration comment, or planned route is not an
-implemented feature. These documents are not automatically loaded agent context;
-include them in the team's agent task instructions.
+- `[x]` means implemented and verified for the stated scope, not merely scaffolded.
+- `[ ]` means incomplete, unverified or blocked. Reference blockers by anomaly ID.
+- Tick individual deliverables as they pass. Tick a phase-complete box only after
+  every required deliverable and its exit check pass.
+- Optional items follow PLAN.md's cut order. If deferred, leave them unticked and
+  record the team's decision; an omission is not implemented work.
+- Dates below are plan targets, not evidence of completion. Independent tasks may
+  proceed in parallel where dependencies and ownership boundaries permit.
+- At phase closure record date, owner if known, changed files, executed checks and
+  results, integration status and remaining limitations under that phase.
 
-## Current architecture checkpoint
+Current position: Phase 0 is complete for local infrastructure. Phase 1 is the
+next uncompleted phase. No provider verification or business feature is claimed.
 
-- Svaar is an independent FastAPI modular monolith for engineering incidents.
-  It has no Cerebro runtime dependency. Commerce is no longer the target domain.
-- One shared agent loop will serve chat and voice. All business tools must pass
-  through `actions`, including authorization, mission/channel limits and risk tiers.
-- `agent` and `voice` must not import each other. Application composition will
-  inject a structural implementation of `voice.contracts.TurnRunner`.
-- Jev decides, deterministic code enforces, Bolna speaks. Bolna's function-mode
-  wrapper may expose only `ask_svaar`, not business tools.
-- Observed events and simulated results remain separate. Missing evidence or a
-  failed call cannot establish contradiction.
+## Phase 0: Engineering foundation
 
-## Completed foundation
+- [x] Phase complete: local scaffold and shared infrastructure.
+- [x] Python package, dependency lock, settings and structured logging.
+- [x] FastAPI lifecycle, health/readiness probes and API error conventions.
+- [x] SQLAlchemy sessions, explicit transactions and empty Alembic baseline.
+- [x] PostgreSQL persistence, one-shot migrations and unprivileged app image.
+- [x] Feature ownership packages, including agent, identity and actions.
+- [x] Synchronous voice TurnRunner protocol, without a fake implementation.
+- [x] Opt-in gateway service and infrastructure diagnostic, without a fake listener.
+- [x] Infrastructure tests, CI definition and development documentation.
 
-| Checkpoint | Evidence / implementation |
-| --- | --- |
-| Python package and locked environment | `pyproject.toml`, `uv.lock`, `src/svaar/` |
-| Application lifecycle and configuration | `app.py`, `config.py`; no database connection on module import |
-| Database/session lifecycle | `db.py`; explicit commit ownership, scoped sessions, pool disposal |
-| Liveness and database readiness | `/health` and `/ready` in `api/health.py` |
-| API/error/logging conventions | `/api/v1` composition, sanitized error envelope, structured logging |
-| Empty migration baseline | `migrations/versions/0001_baseline.py`; no domain tables |
-| Feature ownership packages | `agent`, `identity`, `actions`, plus existing feature packages |
-| Shared voice boundary | Synchronous `TurnRunner` protocol in `voice/contracts.py`; no implementation injected |
-| Container foundation | Same image for app/gateway, PostgreSQL volume, one-shot migrations |
-| Gateway infrastructure diagnostic | `python -m svaar.gateway --check`; opt-in Compose service |
-| Tests and CI definition | `tests/`, `.github/workflows/ci.yml`; remote CI has not been observed |
+Exit check: local startup, database connectivity, migrations, tests, lint/format
+and container configuration work without any provider dependency.
 
-## Last executed validation
+Evidence recorded on 2026-10-18: 29 tests passed against real PostgreSQL; Ruff
+checks passed; default and gateway-profile Compose validated; updated image built;
+gateway diagnostic succeeded; live health and readiness returned 200. Relevant
+files: src/svaar/, tests/, migrations/, compose.yaml, Dockerfile, README.md and
+.github/workflows/ci.yml. This is historical local evidence, not remote CI or
+production verification. Owner: not assigned in this document.
 
-Recorded from the local scaffold update on 2026-10-18, including uncommitted work.
-These results are historical evidence, not a guarantee about subsequent edits.
+Limits: gateway listener/outbox/jobs remain absent (A-001), feature settings are
+comments (A-003), and an upstream test-client warning remains (A-004).
 
-- 29 pytest tests passed with real PostgreSQL, including migrations and readiness.
-- Ruff lint and formatting checks passed.
-- Default and gateway-profile Compose configurations validated.
-- Updated container image built; gateway infrastructure diagnostic exited successfully.
-- The running app returned 200 for both `/health` and `/ready`.
-- One upstream Starlette/httpx deprecation warning remains; see `anomaly.md`.
-- No provider calls, chat connectivity, agent turns, or domain features were validated.
+## Phase 1: Contract checks, identity and action safety
 
-## Next implementation checkpoints
+Target: Oct 18 to 19. Prerequisite: Phase 0.
 
-All are pending; ownership has not been assigned in this file. Follow PLAN.md for
-the full schedule and acceptance tests rather than duplicating it here.
+- [ ] Phase complete.
+- [ ] Verify Caspian auth, inbound mode, stable IDs, sender trust, outbound delivery
+  and channels; record the Caspian/Telegram transport decision.
+- [ ] Verify Bolna account readiness, turn mode, call-reference delivery and one
+  explicitly authorized outbound test call.
+- [ ] Select Jev gateway/model and verify its actual request/response contract.
+- [ ] Implement scoped identities, expiring single-use invites and trusted bindings.
+- [ ] Implement the actions registry/dispatcher, argument validation, role/org/channel
+  checks, configured risk tiers and execution audit.
+- [ ] Implement owner-bound atomic confirmations, expiry, execution authorization
+  and an explicit uncertain-provider-outcome policy.
+- [ ] Implement typed Jev adapter, confidence policy, fallback and decision audit.
+- [ ] Define P0 intent/usability schemas and deterministic mission-guard interface.
+- [ ] Introduce validated feature settings with process-specific credential wiring.
 
-1. **Identity, actions, approvals:** scoped identities and invites, one validated
-   dispatcher, enforced risk tiers, atomic confirmation decisions and execution audit.
-2. **Shared agent and decision path:** verified transport contract, dedupe, memory,
-   bounded tool loop, outbox, voice intent/usability decisions and mission guard.
-3. **Voice and CI:** authenticated mission-bound calls, turn/status idempotency,
-   GitHub signature/delivery handling, explicit repository mapping and incident events.
-4. **Full incident loop:** evidence-backed claims, guarded escalation, deterministic
-   resolution validation, isolated replay and exception draft.
+Exit check: unconfirmed tier-2 tools never execute; concurrent confirmations cannot
+create duplicate local execution attempts; authorization is rechecked; invalid or
+unavailable Jev responses fall back safely; mission limits are enforced. Required
+quality checks pass. Contract blockers: A-002; execution ambiguity: A-006.
 
-The gateway listener, outbox sender and job loop are not implemented. Default
-gateway startup exits with code 2 intentionally; `--check` is not channel readiness.
-Feature variables in `.env.example` are comments, not active Settings fields.
+Evidence: Pending.
 
-## Handoff update rules
+## Phase 2: Shared chat and voice agent runtime
 
-- Before claiming completion, identify the actual files and executed checks.
-  Distinguish implemented, mocked, blocked and not run.
-- Update the relevant checkpoint after a meaningful change. Record date, owner
-  when known, scope, validation and remaining work. Do not invent ownership.
-- Add unresolved failures, ambiguities or contract gaps to `anomaly.md` and refer
-  to their IDs here when they affect the next task.
-- Inspect existing local edits before changing shared files; do not overwrite a
-  teammate's work or equate local completion with a merged/deployed feature.
-- Keep secrets, transcripts, phone numbers and private payloads out of both files.
-- Git/GitHub operations remain manual. Do not commit, push, change branches or
-  edit Git configuration on the team's behalf.
+Target: Oct 20 to 21. Prerequisites: identity/action gate and selected transport.
+
+- [ ] Phase complete.
+- [ ] Implement transport protocol and the chosen authenticated chat adapter.
+- [ ] Implement durable inbound dedupe, retryable failures and thread/call memory.
+- [ ] Verify chat LLM native tool calling; implement the bounded adapter.
+- [ ] Implement chat/voice profiles, pre-execution round/call limits and deadlines.
+- [ ] Generate registry-based tool policy; dispatch every tool through actions.
+- [ ] Implement durable outbox sending with receipt/failure state.
+- [ ] Implement and inject TurnRunner without agent/voice implementation imports.
+- [ ] Integrate transcript usability, intent routing and deterministic mission limits.
+- [ ] Replace gateway refusal with real runtime composition, shutdown and runtime
+  health reporting; API readiness is not listener health.
+
+Exit check: invite enrollment, whoami and a read tool work in chat; a resent message
+has one effect; unusable/ambiguous speech cannot invoke tools; deadlines and limits
+hold. Required quality checks pass. Track A-001 and A-002.
+
+Evidence: Pending.
+
+## Phase 3: Mission-bound voice transport
+
+Target: Oct 22 to 23. Prerequisite: shared runner and identity/action boundaries.
+
+- [ ] Phase complete.
+- [ ] Implement outbound call intent/state and authenticated Bolna adapter.
+- [ ] Implement only the selected turn route with per-call reference binding.
+- [ ] Persist/idempotently reuse replies and deduplicate status callbacks.
+- [ ] Implement the narrow phone_verify challenge before ordinary call missions.
+- [ ] Enforce separate voice credentials, status secret and trustworthy IP checks.
+- [ ] Implement fixed timeout/error replies, outbox fallback and transcript retention.
+- [ ] Restrict tunnel ingress to implemented external routes; keep operator/docs local.
+
+Exit check: an authorized real call verifies the intended phone; a spoken question
+reaches the shared agent; retries do not repeat effects; completed is processed
+once. Failed calls cannot create contradictory evidence. Required checks pass.
+
+Evidence: Pending. Contract blocker: A-002.
+
+## Phase 4: CI ingestion and incident timeline
+
+Target: Oct 24 to 25. Prerequisites: scoped identity, chat delivery and incident storage.
+
+- [ ] Phase complete.
+- [ ] Implement GitHub App client and explicit repository-to-organization mapping.
+- [ ] Verify raw-body HMAC, validate payloads and deduplicate delivery IDs.
+- [ ] Persist append-only observed events with provenance and stable external IDs.
+- [ ] Implement failure fingerprints and an ordered incident timeline.
+- [ ] Deliver owner alerts through the outbox; do not automatically rerun workflows.
+
+Exit check: a failing demo workflow produces one scoped incident/chat alert and
+its ordered timeline is available through chat and voice. Signature, unmapped-repo
+and duplicate-delivery tests pass alongside required quality checks.
+
+Evidence: Pending.
+
+## Phase 5: Evidence-backed claims and guarded escalation
+
+Target: Oct 26 to 27. Prerequisites: events, outbox and verified voice calls.
+
+- [ ] Phase complete.
+- [ ] Detect claims and perform deterministic evidence lookup with provenance.
+- [ ] Implement claim_check/escalation missions and incident acknowledgement.
+- [ ] Classify usable final answers; derive status from persisted evidence.
+- [ ] Preserve unverified for missing evidence, unusable speech and failed calls.
+- [ ] Implement guarded polling, row claiming and durable escalation intent/state.
+- [ ] Add independently validated CI category and adaptive escalation decisions.
+- [ ] Record per-question audit and evaluate labelled examples; batch only if the
+  verified gateway contract supports it.
+
+Exit check: an overdue unacknowledged incident triggers one authorized call under
+concurrent workers; one job failure does not stop others; missing/failed calls never
+contradict claims; deterministic code enforces timing, recipients and call limits.
+Required quality checks pass.
+
+Evidence: Pending.
+
+## Phase 6: Validated resolution and cross-channel confirmation
+
+Target: Oct 28. Prerequisites: action gate, confirmations, claims and scoped adapters.
+
+- [ ] Phase complete.
+- [ ] Implement release-freeze, on-call staffing and deploy/CI capacity constraints.
+- [ ] Implement bounded proposal/revision rounds and deterministic validation.
+- [ ] Implement confirmation calls with exact nonce and owner/channel/expiry checks.
+- [ ] Implement a gated CI action with durable outcomes and no blind risky retries.
+- [ ] Optional: Jira read/create adapter, with creation gated as tier 2.
+- [ ] Optional: Jev proposal pre-screening, outside the critical voice path.
+
+Exit check: validator rejects a proposal and accepts a valid revision; a risky CI
+action waits for owner confirmation across verified channels; duplicate confirmation
+attempts do not repeat it. Required checks pass. Address A-006.
+
+Evidence: Pending.
+
+## Phase 7: Isolated replay and exception draft
+
+Target: Oct 29. Prerequisite: timeline and validator-approved proposal.
+
+- [ ] Phase complete.
+- [ ] Replay one corrected failed-pipeline sequence in isolated state.
+- [ ] Use fake/recorded adapters only; results are explicitly simulated.
+- [ ] Prove replay cannot write observed events or call GitHub, Jira or Bolna.
+- [ ] Optional: export an exception draft with tier-2 approval.
+
+Exit check: corrected sequence produces labelled simulation with no live effects.
+Replay cannot establish production recovery. Required quality checks pass.
+
+Evidence: Pending.
+
+## Phase 8: Integration rehearsal and demo recording
+
+Target: Oct 30. Prerequisite: required incident, claims, decision and voice loop.
+
+- [ ] Phase complete.
+- [ ] Run the full alert, call, timeline, claim, negotiation, simulated replay and
+  confirmed-action demonstration.
+- [ ] Complete at least five real end-to-end calls with authorized participants.
+- [ ] Verify duplicate/reordered delivery, provider failures and deadlines.
+- [ ] Measure turn latency and time to first audio; confirm units and report medians.
+- [ ] Rehearse and record a clean demonstration under three minutes.
+- [ ] Show decision/tool audit; label all mocked or simulated behavior.
+- [ ] Record team-approved optional cuts and remaining limitations honestly.
+
+Exit check: reproducible recording and evidence-backed metrics exist; required
+quality checks pass; no unresolved critical trust-rule failure remains.
+
+Evidence: Pending.
+
+## Phase 9: Submission
+
+Target: Oct 31, morning; exact cutoff must be confirmed by the team.
+
+- [ ] Phase complete.
+- [ ] Confirm cutoff and prepare write-up, recording and run instructions.
+- [ ] Reconcile checklist/anomaly status against actual code and final checks.
+- [ ] Team manually reviews secrets, repository contents and submission-time docs.
+- [ ] Team submits and records confirmation; agents do not publish or push.
+
+Exit check: team has evidence of successful submission before the cutoff.
+
+Evidence: Pending.

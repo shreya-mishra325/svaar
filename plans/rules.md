@@ -112,12 +112,35 @@ workflow; they do not authorize an agent to perform Git operations.
   a healthy agent runtime.
 - Summarize changed files, verification and remaining limitations at handoff.
 
+## Phase tracking and completion
+
+- Use `checkpoints.md` as the phase checklist. At task start identify the phase,
+  assigned deliverables and dependencies; do not silently expand the task to finish
+  other phases. Independent work may proceed in parallel with prerequisites clear.
+- Tick a deliverable only when its stated behavior exists and appropriate checks
+  pass. An empty package, mock, comment, protocol or health probe cannot establish
+  completion of a live feature.
+- Leave incomplete, blocked or unverified items unticked. Reference blocker IDs
+  from `anomaly.md`; a target date arriving does not establish completion.
+- Tick the phase-complete box only when all required deliverables and its exit
+  check pass. Record date, owner if known, changed files, executed checks/results,
+  integration status and remaining limitations under the phase.
+- Follow PLAN.md's optional cut order. Leave deferred optional items unticked and
+  record the team's decision separately; deferral is not implemented work.
+- If a regression invalidates completion, untick the affected item and phase box
+  as appropriate, retain earlier evidence as historical, and record the regression
+  in `anomaly.md`.
+- Do not renumber/redefine phases, change target dates or weaken exit criteria to
+  make progress appear complete. Reconcile explicit team-approved plan changes in
+  the checklist without rewriting PLAN.md unless assigned.
+
 ## Shared context documents
 
 - Retain `plans/` for team collaboration. Do not ignore, move, delete or regenerate
   its contents to follow older cleanup notes. Final submission cleanup is manual.
 - Do not edit `PLAN.md` or `CEREBRO_CONTEXT.md` unless explicitly assigned.
-- Update `checkpoints.md` after meaningful verified progress; update `anomaly.md`
+- Update the relevant phase in `checkpoints.md` after meaningful verified progress;
+  update `anomaly.md`
   for observed failures, integration blockers or unresolved design conflicts.
 - Keep IDs and resolution evidence for anomalies. Do not invent owners or dates,
   silently erase unresolved issues, or present assumptions as verified facts.
