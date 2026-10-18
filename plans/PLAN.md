@@ -16,7 +16,7 @@ echo "plan.md" >> .git/info/exclude
 
 Svaar is an agent for engineering incidents. It lives in team chat through the Caspian SDK, knows who people are, uses tools through a model loop, watches CI, and talks to engineers on the phone through Bolna. It reconstructs what happened from recorded events, checks status claims against evidence, negotiates conflicting constraints, and accepts only validated plans.
 
-Svaar has one brain. The same agent, the same tool registry and the same approval gate serve chat and voice. Chat arrives through Caspian. Voice arrives through Bolna, which acts only as the voice layer: it turns the caller's speech into text, hands that text to Svaar, speaks the text Svaar returns, and sends the final transcript when the call ends. Bolna never calls a tool and never decides anything.
+Svaar has one brain. The same agent, tool registry and approval gate serve chat and voice. Chat arrives through Caspian. Voice arrives through Bolna, which provides telephony, speech input/output and the final transcript. In function mode, Bolna's wrapper model may invoke only the transport bridge `ask_svaar`; it cannot invoke Svaar business tools, authorize actions, or make incident decisions. Svaar supplies the response and all business decisions.
 
 Svaar is a new codebase. Cerebro (pinned at commit `443355a` in its handoff document) is the reference for patterns worth porting and for flaws to avoid. Svaar does not run on top of Cerebro and does not depend on a Cerebro deployment.
 
@@ -38,14 +38,14 @@ Domain: engineering team operations. Nothing outside that domain is in scope.
 |---|---|
 | One brain | A single agent loop serves every channel. Transports differ, the loop, tools and policies do not |
 | One gate | Every tool call, from chat or from a call, goes through the `actions` dispatcher. No handler is ever called directly |
-| Voice is a transport | Bolna supplies speech in, speech out, telephony and the final transcript. Svaar supplies all words and all decisions |
+| Voice is a transport | Bolna supplies telephony, speech in/out and the final transcript. Its function-mode wrapper may call only `ask_svaar`; Svaar owns business decisions and tool execution |
 | Jev decides, code enforces | Jev returns typed decisions with confidence. Deterministic code validates, authorizes and acts. Jev never executes anything |
 | Observations and simulations never mix | Replay output stays in `replay` tables and never enters `events` |
 | Missing evidence is not contradiction | Absent evidence, `no-answer`, `busy` and failed calls never mark a claim `contradicted` |
 
 ## 3. Porting Cerebro: what to take, rewrite and drop
 
-Cerebro's handoff tells an agent not to copy its code. You own both projects and decided Svaar's agent is built from Cerebro's code, so this plan ports patterns as new code under Svaar's conventions (synchronous SQL, adapters, docstrings, tests) instead of copying files wholesale. Several Cerebro modules carry flaws listed in section 4, and copying them would import those flaws.
+Cerebro's handoff says not to copy its code wholesale. Svaar is a new codebase: port selected patterns as new code under Svaar's conventions (synchronous SQL, adapters, docstrings and tests). Several Cerebro modules carry flaws listed in section 4, and copying them would import those flaws.
 
 ### Port (adapt to Svaar's rules)
 
@@ -124,7 +124,7 @@ flowchart TD
 
 Dashed boxes are outside Svaar. Solid boxes are Svaar packages. The dotted arrow from `voice` to `agent` is a runtime call through an injected protocol, not an import (see Composition).
 
-Every action, from chat or from a call, passes through one path in `actions`:
+Every business action, from chat or from a call, passes through one path in `actions`. Jev confidence and the LLM's proposed tool call never override authorization, mission allowlists or configured risk tiers:
 
 ```mermaid
 flowchart LR
@@ -335,15 +335,26 @@ Jev is a decision model, not a chat model. It takes a state and named, typed que
 
 ### Decision slots
 
-| Slot | Question type | Code that acts on it |
-|---|---|---|
-| Is a chat message a verifiable status claim | noul | Creates a claim |
-| Classify a call answer (confirmed, denied, unsure, wrong person, callback) | choice | Writes an evidence record |
-| Propose a claim status | choice | Only an explicit contradicting evidence record can set `contradicted` |
-| Pick the next source or question | choice | Triggers a verification call |
-| Escalate to a phone call now | noul | Threshold check, then outbound call |
-| Is a requested action risky or irreversible | noul | Raises the tool's tier to 2 if it was lower |
-| Pre-screen a negotiation proposal | score | Ranking only; the validator decides validity |
+Keep the runtime decision catalogue small. Each slot has a fixed schema, allowed outputs, a deterministic fallback and an auditable policy outcome. Define the schemas in one `questions.py` file; do not create a separate module for every question.
+
+| Priority | Decision slot | Question type | Allowed outputs | How Svaar uses the result |
+|---|---|---|---|---|
+| P0 | Voice intent router | `choice` | `investigate`, `verify_claim`, `explain_failure`, `propose_resolution`, `confirm_action`, `other` | Routes a usable utterance to an existing mission or registered tool path. Unknown or low-confidence intent triggers a short clarification, not a risky action. |
+| P0 | Transcript usability gate | `choice` | `usable`, `repeat`, `clarify`, `unusable` | Determines whether the transcript is intelligible enough to interpret. Unusable or ambiguous speech cannot create evidence, confirm an action, or change claim status; usability does not establish truth. |
+| P0 | Claim-answer classifier | `choice` | `confirmed`, `denied`, `unsure`, `wrong_person`, `callback` | Classifies the completed `claim_check` call transcript only. Deterministic code maps the classification to a provenance-bearing evidence record when appropriate; `unsure`, `wrong_person`, `callback`, unusable transcripts and failed calls do not contradict a claim. |
+| P0 | Mission guard | Deterministic code, not Jev | Tools permitted by the active mission | Rejects tools outside the active mission, regardless of what the LLM or Jev proposes. Enforces mission state, principal, incident scope and authorization in code. |
+| P1 | CI failure category and flaky-vs-real classification | `choice` | `flaky`, `test`, `dependency`, `infra`, `config`, `unknown` | One classification drives alert severity and the contextual hints shown by `explain_ci_failure`. A `flaky` result may produce a quiet note instead of a high-urgency alert. Failure fingerprinting and deduplication remain deterministic. |
+| P1 | Adaptive escalation | `choice` | `wait`, `chat_nudge`, `call_now` | Recommends the next escalation step using incident state, acknowledgement age and failure category. Deterministic code enforces escalation timing, recipient authorization and call limits. |
+| P1 | Calibration and outcome evaluation | Evaluation module, not a runtime decision slot | Labelled examples and observed outcomes | Measures accuracy, confidence buckets, fallback rate, latency and downstream outcomes. Thresholds are tuned on a labelled evaluation set rather than assumed from vendor claims. |
+| P2 / stretch | Recovery assessment | `choice` | `resolved`, `still_failing`, `uncertain` | Runs only after a confirmed real rerun and evaluates new, real GitHub workflow events. Sandbox replay never proves production recovery. Implement only if all P0/P1 paths are stable. |
+
+The existing claim-verification workflow remains. The claim-answer classifier labels what the caller said; it does not set claim status. Deterministic code maps a usable answer to a persisted evidence record with provenance and an explicit `supports` or `contradicts` stance only when justified. A claim status is derived from persisted evidence and deterministic rules, not from a separate claim-status decision slot.
+
+Do not add a separate investigation-next-step slot, incident-urgency score, action-risk score, or negotiation score to the critical path. Existing workflows and deterministic controls already cover these concerns, and extra calls add latency without improving the core demo.
+
+Never let Jev directly set `contradicted`. That status requires an explicit, persisted evidence record with a `contradicts` stance and provenance. Missing evidence, an unanswered or failed call, a busy line, an unusable transcript, or an uncertain answer leaves the claim `unverified`.
+
+Recovery assessment is optional and must never be a dependency for the submission demo.
 
 ### Policy layer
 
@@ -353,11 +364,19 @@ Jev is a decision model, not a chat model. It takes a state and named, typed que
 | Ask by voice | Confidence between thresholds, or the action is risky |
 | Defer or use fallback | Confidence below the low threshold, Jev unavailable, or response invalid |
 
-Thresholds are configuration, tuned on your own labelled call transcripts. The vendor's calibration claim is not assumed. Send Jev only what a question needs, with phone numbers and names redacted.
+Thresholds are configuration, tuned on your own labelled call transcripts. The vendor's calibration claim is not assumed. Send Jev only what a question needs, with phone numbers and names redacted. Confidence may choose between a safe fallback, clarification or deferral; it never grants authorization, changes a tool's configured risk tier, or bypasses the dispatcher or confirmation gate.
 
 ### Gateways
 
-Verify the exact request body for the chosen route before coding: TypeSafe native System One API; NanoGPT `POST https://nano-gpt.com/api/v1/decisions`; Inworld `POST https://api.inworld.ai/alpha/decisions` (alpha); LiteLLM, Portkey or Bifrost `/v1/decisions` routes. Common to all: a `state`, named typed questions (`noul`, `choice`, `score`), and `criteria` on choice questions. Pin the model version (for example `jev-1.13.0`).
+Before implementing the adapter, verify the chosen gateway's actual request and response contract using its current documentation and a real or official example. Confirm the accepted question schema, `choice` criteria format, response structure, confidence and probability fields, timeout behavior, and whether multiple named questions can be sent in one request. Do not assume different gateways share an identical payload.
+
+Expose one internal `DecisionEngine` interface so callers remain independent of the provider. Parse and validate each returned answer independently and write a separate audit record for every question. If a batched response contains both valid and invalid answers, preserve valid answers and use the deterministic fallback only for the missing or invalid questions; a transport-level failure may fall back for all questions.
+
+The CI classification and adaptive escalation decisions may be batched only if the selected gateway explicitly supports multiple named questions in one request. Both decisions must be validated and handled independently: an invalid answer must not invalidate a valid answer from the same request.
+
+For malformed responses, timeouts, provider errors and unusable confidence data, use deterministic fallback behavior. Never fabricate a missing answer or confidence value.
+
+Candidate routes: TypeSafe native System One API; NanoGPT `POST https://nano-gpt.com/api/v1/decisions`; Inworld `POST https://api.inworld.ai/alpha/decisions` (alpha); LiteLLM, Portkey or Bifrost `/v1/decisions` routes. Common to all: a `state`, named typed questions (`noul`, `choice`, `score`), and `criteria` on choice questions. Pin the model version (for example `jev-1.13.0`).
 
 ### Adapter interface (synchronous)
 
@@ -411,7 +430,7 @@ Use `httpx.Client` with explicit connect and read timeouts. A timeout or invalid
 
 ## 10. Bolna integration
 
-Bolna is the voice layer. Its job on every call is: transcribe the caller, hand the text to Svaar, speak what Svaar returns, and report the final transcript.
+Bolna is the voice layer. Its job on every call is to provide speech/telephony, pass caller text to Svaar through the configured turn mode, speak Svaar's returned text, and report the final transcript. In function mode, the only function exposed to Bolna is the `ask_svaar` transport bridge.
 
 Facts from Bolna's documentation:
 
@@ -434,12 +453,12 @@ Svaar only places outbound calls. Each call row in `voice_calls` carries a missi
 
 | Mission | Trigger | Tools offered to the agent | Ends when |
 |---|---|---|---|
-| `escalation` | Acknowledgement deadline expired | `whoami`, `acknowledge_incident`, `get_timeline`, `list_claims`, `request_replay`, `confirm_action` | Caller acknowledges or hangs up |
+| `escalation` | Acknowledgement deadline expired | `whoami`, `acknowledge_incident`, `get_timeline`, `list_claims`, `confirm_action` | Caller acknowledges or hangs up |
 | `claim_check` | A claim is `unverified` | `record_claim_answer` | Answer recorded or caller hangs up |
 | `phone_verify` | A person registered a phone | `verify_phone_code` | Code accepted, rejected or caller hangs up |
 | `confirmation` | A tier-2 confirmation is pending for a person with a verified phone | `confirm_action` | Nonce accepted, rejected or caller hangs up |
 
-The caller is identified by the number Svaar dialled and the verified binding for it, never by anything the model or the caller says. Inbound calls are out of scope.
+For ordinary missions, the caller is associated with the principal and verified phone binding that Svaar dialled, never by anything the model or caller says. The `phone_verify` mission is the narrow exception: it is bound to a pending phone-verification challenge and intended principal, and may verify only that exact number/challenge. It must not treat the pending number as verified before the code matches. Inbound calls are out of scope.
 
 ### How each turn reaches Svaar
 
@@ -448,9 +467,9 @@ Two wiring modes exist. Both call the same `TurnRunner`, and the mode is configu
 | Mode | How | Notes |
 |---|---|---|
 | `llm_endpoint` | Bolna's LLM setting points at Svaar's OpenAI-compatible route `POST /api/v1/voice/llm/chat/completions`. Bolna sends the conversation each turn and speaks the reply | Preferred. Bolna's own model is bypassed, so a turn has one LLM hop. Needs streaming or fast non-streaming replies |
-| `function` | The Bolna agent prompt tells its model to call one custom function, `ask_svaar`, with the caller's exact words and to speak the returned text verbatim | Fallback. Uses documented custom functions. Adds one Bolna LLM hop per turn |
+| `function` | The Bolna agent prompt tells its wrapper model to call one custom function, `ask_svaar`, with the caller's exact words and to speak the returned text verbatim. This function is only a bridge to Svaar's turn endpoint, not a business tool | Fallback. Uses documented custom functions. Adds one Bolna LLM hop per turn |
 
-The route identifies the call from a per-call reference that Svaar passes through `user_data` when it places the call. In `function` mode the reference is a function parameter. In `llm_endpoint` mode it is read from the system message. Confirm on a test call that Bolna delivers the reference in the chosen mode.
+The route identifies the call from a high-entropy per-call reference that Svaar passes through `user_data` when it places the call. In `function` mode the reference is a function parameter. In `llm_endpoint` mode it may be read from the system message, so verify the exact delivery contract and ensure the reference is not spoken to the caller or exposed in logs. Treat it as a locator, not a substitute for the bearer token. Confirm on a test call that Bolna delivers the reference in the chosen mode.
 
 Pass-through function definition for `function` mode. The `key` must be exactly `custom_task`.
 
@@ -486,6 +505,28 @@ Pass-through function definition for `function` mode. The `key` must be exactly 
 5. Store the reply in `voice_turns`, return it.
 6. On timeout, agent error or invalid state, return a fixed spoken line ("I can't check that right now, I will message you"), enqueue the detail to chat through the outbox, and keep the call row open.
 
+### Voice decision pipeline and reliability
+
+The voice path must remain short and predictable. Apply the following sequence inside the shared agent/turn runner:
+
+1. Authenticate the call reference and resolve the principal, incident and active mission.
+2. Apply the transcript usability gate before using caller text as a claim, confirmation or tool instruction.
+3. If the transcript is unusable or ambiguous, ask the caller to repeat or clarify. Do not run tools or mutate evidence.
+4. Use the voice intent router to select an existing mission or registered tool path. If intent is unknown or confidence is insufficient, ask a short clarification.
+5. Generate the tool policy from the registry and active mission. The deterministic mission guard rejects any tool not permitted for that call.
+6. Validate arguments, authorize the principal, and dispatch all tool calls through `actions`. Jev and the LLM cannot bypass the dispatcher or approval gate.
+7. Persist the turn and its audit records idempotently. A retry must return the saved reply rather than repeat tool calls.
+
+The intent router, transcript usability gate and mission guard are P0 voice reliability requirements. Implement and test them before expanding the decision catalogue. The intent router selects an intent within the active call; it cannot change the call's mission or expand its tool allowlist. Starting a different mission requires a separate deterministic server-side transition.
+
+The transcript usability gate is not a truth detector. A usable transcript can still contain a false statement. Claim verification requires evidence and provenance; transcript quality alone must never mark a claim confirmed or contradicted.
+
+Measure per-turn latency and Bolna's `time_to_first_audio` where available. Keep spoken replies concise and retain the existing fixed fallback line for timeouts and provider failures.
+
+### Transcripts
+
+Per-turn caller text and replies are stored in `messages` under the call's conversation so the agent has history. The final transcript from the `completed` webhook feeds Jev classification and the audit trail. Transcripts have a retention limit and are never logged.
+
 ### Status handling
 
 | Bolna status | Svaar action |
@@ -494,10 +535,6 @@ Pass-through function definition for `function` mode. The `key` must be exactly 
 | `no-answer`, `busy`, `failed`, `canceled`, `stopped`, `error` | Mark the call failed; the claim stays `unverified`; tell the requester in chat through the outbox |
 | `balance-low` | Alert the operator in chat; no claim change |
 | Anything else | Record and ignore |
-
-### Transcripts
-
-Per-turn caller text and replies are stored in `messages` under the call's conversation so the agent has history. The final transcript from the `completed` webhook feeds Jev classification and the audit trail. Transcripts have a retention limit and are never logged.
 
 ### Voice security
 
@@ -541,7 +578,7 @@ Build SQLAlchemy models on `svaar.db.Base` inside the owning package, one Alembi
 | `events` | incidents | incident_id, source, external_id, kind, payload (JSONB), occurred_at; unique (source, external_id) |
 | `claims` | incidents | incident_id, author, statement, status in (`confirmed`, `contradicted`, `unverified`) |
 | `evidence` | incidents | claim_id, event_id (nullable), call_id (nullable), stance in (`supports`, `contradicts`) |
-| `decisions` | decisions | incident_id, state_hash, question, answer, confidence, model_version, policy_outcome, action_taken, decided_at |
+| `decisions` | decisions | incident_id, state_hash, question, answer, confidence, probabilities (JSONB, nullable), model_version, policy_outcome, action_taken, decided_at |
 | `voice_calls` | voice | principal_id, mission, incident_id, claim_id, confirmation_id, call_ref (unique), execution_id (unique, nullable until placed), state, created_at |
 | `voice_turns` | voice | voice_call_id, turn_index, reply, created_at; unique (voice_call_id, turn_index) |
 | `voice_webhook_events` | voice | execution_id, status, received_at; unique (execution_id, status) |
@@ -597,11 +634,11 @@ Start date Oct 18, 13 days. Target a complete, recorded demo by Oct 30 and submi
 | Dates | Work | Done when |
 |---|---|---|
 | Oct 18 | Smoke checks: the six Caspian questions (section 19), whether Bolna accepts a custom LLM endpoint, `GET /user/me`, one outbound Bolna test call to your phone. Start `identity` and `actions` | Caspian and Bolna answers are written down; your phone rings from Bolna |
-| Oct 19 | `actions` (registry, validation, authorization, tier gate, per-channel permissions, `tool_executions`), `approvals` (atomic confirmations), Jev key, Jev adapter, fallback, policy layer. Transport and turn mode locked at end of day | Unit tests prove a tier-2 tool never runs without a confirmed confirmation, and Jev failures route to the fallback; `alembic check` is clean |
-| Oct 20 to 21 | `agent`: transport protocol, Caspian transport (or Telegram), inbound dedupe, LLM adapter with native-tool smoke check, tool loop with chat and voice profiles, prompts, memory, outbox sender, `TurnRunner`; `gateway` container | You enroll with an invite in chat, ask `whoami` and a read tool, and get replies; a resent message is processed once |
+| Oct 19 | `actions` (registry, validation, authorization, tier gate, per-channel permissions, `tool_executions`), `approvals` (atomic confirmations), Jev key, Jev adapter, fallback, policy layer. Transport and turn mode locked at end of day; define the voice intent-router and transcript-usability schemas; implement the deterministic mission-guard interface | Unit tests prove a tier-2 tool never runs without a confirmed confirmation, and Jev failures route to the fallback; `alembic check` is clean; P0 voice decisions have typed schemas and safe fallback behavior; mission-guard tests reject tools outside the active mission |
+| Oct 20 to 21 | `agent`: transport protocol, Caspian transport (or Telegram), inbound dedupe, LLM adapter with native-tool smoke check, tool loop with chat and voice profiles, prompts, memory, outbox sender, `TurnRunner`; `gateway` container; integrate the voice intent router and transcript usability gate into `TurnRunner`; test ambiguous speech and fallback behavior | You enroll with an invite in chat, ask `whoami` and a read tool, and get replies; a resent message is processed once; voice turns route clear requests correctly, clarify ambiguous requests, and never invoke tools for unusable transcripts |
 | Oct 22 to 23 | `voice`: outbound client, `voice_calls` with missions, turn route, `voice_turns` idempotency, status handler with IP check and dedupe, tunnel, `phone_verify` mission | A real call reaches your phone, the phone verifies, a spoken question is answered by the agent, and `completed` is processed once even if delivered twice |
 | Oct 24 to 25 | GitHub webhook (HMAC, delivery dedupe, repo mapping), App adapter, `events`, timeline, failure fingerprints, alerts through the outbox | A failing workflow produces a chat alert, and you hear the ordered timeline by chat and by voice |
-| Oct 26 to 27 | Claim detection, evidence lookup, `claim_check` and `escalation` missions, Jev classification, acknowledgement, guarded polling loop in `jobs` | An unacknowledged alert becomes a call exactly once, and `no-answer` leaves the claim `unverified` |
+| Oct 26 to 27 | Claim detection, evidence lookup, `claim_check` and `escalation` missions, Jev classification, acknowledgement, guarded polling loop in `jobs`, CI failure category plus flaky-vs-real classification, adaptive escalation, labelled Jev evaluation set | An unacknowledged alert becomes a call exactly once, and `no-answer` leaves the claim `unverified`; CI classification and escalation validate independently, fallback behavior is tested, and each decision is auditable; missing or failed calls still leave claims unverified |
 | Oct 28 | Negotiation agents, validator, Jev pre-screening, `confirmation` mission, tier-2 tools confirmed across channels, Jira ticket tool | A proposal is rejected, revised, approved; a rerun waits for a nonce read aloud |
 | Oct 29 | One replay of a failed pipeline in the sandbox; exception draft export | Replay is labelled simulated; a draft file exports |
 | Oct 30 | Rehearse, record the demo, measure turn latency and time to first audio | A clean take under three minutes |
@@ -630,14 +667,19 @@ Show the `decisions` and `tool_executions` tables once, to make Jev's role and t
 - **Identity:** invites are single-use and expire; no organization is created from chat; an unverified phone is never called.
 - **Dedupe:** a resent chat message, a resent GitHub delivery and a retried voice turn each take effect once; a failed message can be retried.
 - **Adapter and policy:** mocked Jev for success, invalid payload, timeout and low confidence; boundary tests at each threshold.
+- **Voice intent router:** labelled examples for every allowed intent, ambiguous utterances, unrelated requests, low confidence and fallback behavior.
+- **Transcript usability gate:** clear speech proceeds; garbled, incomplete or ambiguous speech requests repetition or clarification and cannot create evidence or confirm actions.
+- **Mission guard and missions:** each voice mission exposes only its registered tools; requests for tools outside that mission are refused even when proposed by the LLM; a spoken confirmation succeeds only on the exact nonce.
+- **Batched Jev decisions:** if gateway batching is supported, valid answers are retained independently when another answer is malformed; every question gets its own audit record.
+- **CI classification and escalation:** all allowed labels validate; `flaky` uses the configured low-noise alert path; escalation timing, recipient authorization and call limits remain deterministic.
+- **Recovery assessment, if implemented:** only real post-rerun GitHub events can support a recovery result; replay output cannot establish recovery.
+- **Voice latency:** record per-turn latency and `time_to_first_audio` where available, verify the fixed fallback is returned within the configured deadline, and report the median with its confirmed unit.
 - **Validator:** table-driven tests per hard constraint, including must-reject cases.
 - **Trust rules:** absent evidence, `no-answer` and `busy` never produce `contradicted`.
-- **Missions:** each mission exposes only its tool set; a spoken confirmation succeeds only on the exact nonce.
 - **Voice security:** wrong token and non-allowlisted IP are rejected; no sensitive data in logs; the fixed fallback line is returned when the agent times out.
 - **Polling loop:** two concurrent workers escalate an expired unacknowledged incident exactly once; one job failing does not stop the others.
 - **Migrations:** PostgreSQL tests run when `SVAAR_TEST_DATABASE_URL` points at a dedicated disposable database.
 - **Calls:** a labelled transcript set for tuning thresholds, plus at least five real end-to-end calls before submission.
-- **Latency:** record per-turn latency and `time_to_first_audio`, and report the median with its confirmed unit.
 
 ## 18. Risks and mitigations
 
@@ -656,6 +698,7 @@ Show the `decisions` and `tool_executions` tables once, to make Jev's role and t
 | Wallet credits, concurrency (max 10), telephony setup | `GET /user/me` before sessions, test number, confirm outbound number early |
 | Duplicate or reordered webhooks, messages and turns | Unique dedupe keys, replay-safe handlers |
 | New packages disturb teammates' work | Agree the package table change before merging |
+| Extra Jev calls increase live voice latency | Prioritize the voice intent router, transcript usability gate and mission guard. Batch alert-time decisions only when the gateway contract supports it. Measure latency before adding optional decisions |
 
 ## 19. Open items
 
@@ -671,7 +714,7 @@ Caspian smoke check, answered on Oct 18:
 Other items:
 
 - Confirm whether Bolna accepts a custom LLM endpoint and how it delivers a per-call reference in each turn mode.
-- Confirm the Jev gateway, key and exact request body.
+- Confirm the Jev gateway, key and exact request/response contract, including per-question partial failures, confidence/probability fields, batching support and timeout behavior. Do not implement against an assumed shared schema.
 - Choose the chat LLM and run the native-tool smoke check, including first-token latency for voice.
 - Read Bolna's extractions page before fixing the `claim_check` call design.
 - Confirm the unit of `time_to_first_audio`.
