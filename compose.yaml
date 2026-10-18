@@ -1,0 +1,47 @@
+name: svaar
+
+x-application: &application
+  image: svaar:local
+  build: .
+  environment:
+    SVAAR_ENVIRONMENT: ${SVAAR_ENVIRONMENT:-development}
+    SVAAR_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-svaar}:${POSTGRES_PASSWORD:-svaar_dev_only}@db:5432/${POSTGRES_DB:-svaar}
+    SVAAR_LOG_LEVEL: ${SVAAR_LOG_LEVEL:-INFO}
+    SVAAR_DATABASE_TIMEOUT_SECONDS: ${SVAAR_DATABASE_TIMEOUT_SECONDS:-3}
+
+services:
+  db:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-svaar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-svaar_dev_only}
+      POSTGRES_DB: ${POSTGRES_DB:-svaar}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    <<: *application
+    command: ["alembic", "upgrade", "head"]
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    <<: *application
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data:
