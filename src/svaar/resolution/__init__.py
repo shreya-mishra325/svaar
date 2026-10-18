@@ -1,1 +1,1 @@
-"""Bounded negotiation and deterministic validation of commerce proposals."""
+"""Release, on-call, and deploy-capacity negotiation, validation, and exception drafts."""

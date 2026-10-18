@@ -1,1 +1,1 @@
-"""Human approvals and authorization boundaries enforced by deterministic code."""
+"""Owner-bound confirmations, exact nonces, expiry, and atomic confirmation decisions."""

@@ -37,5 +37,7 @@ jobs:
       - run: uv run --locked ruff check .
       - run: uv run --locked alembic upgrade head
       - run: uv run --locked alembic check
+      - run: uv run --locked python -m svaar.gateway --check
       - run: uv run --locked pytest
       - run: docker compose config --quiet
+      - run: docker compose --profile gateway config --quiet

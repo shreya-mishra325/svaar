@@ -43,5 +43,19 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Reserved for the agent runtime. Default startup explicitly refuses to idle
+  # without a listener; --check validates infrastructure without starting one.
+  gateway:
+    <<: *application
+    profiles: ["gateway"]
+    init: true
+    entrypoint: ["python", "-m", "svaar.gateway"]
+    command: []
+    healthcheck:
+      disable: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
 volumes:
   postgres_data:

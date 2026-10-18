@@ -12,6 +12,11 @@ Svaar is a voice-enabled agent for engineering incidents. It lives in team chat,
 
 Svaar has one agent. Chat messages and phone calls reach the same tool loop, the same tool registry and the same approval gate.
 
+This describes the target architecture. The current code implements shared infrastructure,
+health probes, package boundaries, and the voice turn-runner protocol only. The agent loop,
+transports, identity, dispatcher, approvals, provider integrations, and domain features remain
+to be implemented. Cerebro is an architectural reference, not a deployed dependency.
+
 ## How it works
 
 ```mermaid
@@ -64,19 +69,30 @@ Svaar is a FastAPI modular monolith. Each package owns its tables, models and ro
 
 Two boundaries matter most:
 
-- `agent` and `voice` never import each other. `voice` defines a turn-runner protocol and application startup injects the agent's implementation.
+- `agent` and `voice` never import each other. `voice/contracts.py` defines the synchronous `TurnRunner` protocol. When implemented, application startup will inject the agent's structurally compatible implementation; no turn runner is wired today. Both packages may depend on `actions` and `identity`.
 - Replay output never enters `events`. Observations and simulations stay in separate tables.
+
+Every business tool call must pass through `actions`; neither a transport nor a model may
+call a feature handler directly. The voice intent router and transcript-usability gate belong
+to the future agent/decision path. The deterministic mission guard must not allow either
+model to expand a call's mission or tool allowlist. These are feature requirements, not
+implemented checks in this scaffold.
 
 External SDKs and HTTP contracts belong behind adapters, never in deterministic business rules.
 
 ## Processes
 
-| Process | Runs |
+| Process | Target responsibility / current status |
 | --- | --- |
-| `app` | FastAPI: probes, voice turn routes, status webhook, GitHub webhook, incident and operator routes |
-| `gateway` | Chat channel listener, outbox sender, guarded polling loop |
+| `app` | FastAPI. Only probes are implemented; voice, webhook, incident and operator routes are future work |
+| `gateway` | Future chat listener, outbox sender and guarded polling loop. Opt-in Compose profile; only the infrastructure diagnostic works today |
 
 Both are built from the same image. Only Bolna and GitHub (and the chat channel provider, if it delivers by webhook) need to reach the application. Expose only the voice and webhook routes through a tunnel. Keep `/docs` and every other route local.
+
+No external service needs access yet. When routes exist, restrict tunnel ingress to the
+implemented voice paths, GitHub webhook, and Caspian webhook only if the confirmed transport
+requires one. No channel SDK or provider-specific dependency is installed before its contract
+is verified. Caspian is the planned channel transport, with Telegram as the fallback.
 
 ## Install and run locally
 
@@ -102,12 +118,29 @@ Visit `http://127.0.0.1:8000/health`, `/ready` and `/docs`.
 ## Run everything in containers
 
 ```sh
-docker compose up --build --wait app gateway
-docker compose logs app gateway
+docker compose up --build --wait app
+docker compose logs app
 docker compose down
 ```
 
-Compose starts PostgreSQL, waits for its health check, runs migrations as a one-shot service, then starts the unprivileged `app` and `gateway` containers. PostgreSQL persists in the `postgres_data` volume. `down` preserves data. Do not delete the volume unless its data is disposable.
+Compose starts PostgreSQL, waits for its health check, runs migrations as a one-shot service,
+then starts the unprivileged `app`. PostgreSQL persists in the `postgres_data` volume. `down`
+preserves data. Do not delete the volume unless its data is disposable.
+
+The reserved `gateway` service uses the same image, has no published ports, and waits for
+migrations. It is behind the `gateway` profile so normal startup does not launch an unfinished
+runtime. Check its infrastructure explicitly:
+
+```sh
+docker compose run --build --rm gateway --check
+```
+
+For local Python, use `uv run --locked python -m svaar.gateway --check` with PostgreSQL running.
+The diagnostic checks settings and database connectivity, then exits. It does not listen to
+channels, send messages, or run jobs. Without `--check`, startup exits with code 2 and a clear
+runtime-unavailable error. Replace that refusal with real agent/jobs composition when the
+features are ready, then enable the profile and add runtime-specific health checks. The API's
+HTTP health check is deliberately disabled on the gateway, which is not an HTTP server.
 
 Only localhost ports 8000 and 5433 are published. `.env` and `plans/` are excluded from the image build context, not from the repository. Docker image tags are versioned but not digest-pinned.
 
@@ -130,7 +163,11 @@ Settings read environment variables before optional `.env` values. Invalid setti
 
 ### Features
 
-These variables are introduced with the feature that reads them and are validated when that feature is enabled.
+These variables are introduced with the feature that reads them and must be validated at
+application construction when that feature is enabled. They are listed as commented examples
+in `.env.example`, not active fields in the infrastructure Settings class. Compose currently
+passes infrastructure settings only; wire each feature's credentials only to the processes
+that need them as the feature is implemented.
 
 | Area | Variables |
 | --- | --- |
@@ -146,8 +183,12 @@ Keep real credentials out of source control and logs. Production must inject its
 
 ## Security model
 
+The following controls are requirements for feature implementation. Authentication, identity,
+dispatcher enforcement, confirmation, and external webhook routes do not exist yet; configuring
+a token alone does not enable or protect a feature.
+
 - **Separate credentials.** The operator token only opens operator routes. Voice turns, the voice status webhook, the GitHub webhook and any channel webhook each have their own credential. GitHub deliveries are verified by HMAC and deduplicated by delivery ID. The Bolna status webhook accepts only Bolna's addresses plus a shared secret.
-- **Verified identity.** People join with single-use, expiring invites. No organization is created from chat. A phone number is verified by a code read aloud on a call, and only verified phones are ever called. The person on a call is identified by the number Svaar dialled, never by anything said on the call.
+- **Verified identity.** People join with single-use, expiring invites. No organization is created from chat. Ordinary missions call only verified phones. The `phone_verify` mission is the narrow exception: it may dial only the pending number bound to that principal's verification challenge and may only verify that challenge. A caller cannot establish identity by asserting it during a call.
 - **One gate.** No code path calls a tool handler outside `actions`. Risky tools need a confirmation with a one-time code, compared exactly in code, executed once, and authorized again at execution time.
 - **Trust rules.** Missing evidence, unanswered calls, busy lines and failed calls never mark a claim contradicted.
 - **Idempotency.** Chat messages, GitHub deliveries, Bolna webhooks and voice turns are deduplicated by unique database keys, and handlers are safe to replay.
@@ -181,7 +222,7 @@ Coordinate migration heads across teammates; resolve concurrent heads deliberate
 ```sh
 docker compose build
 docker compose run --rm migrate
-docker compose up -d app gateway
+docker compose up -d app
 ```
 
 ## Quality and tests
@@ -214,7 +255,12 @@ SVAAR_TEST_DATABASE_URL=postgresql+psycopg://svaar:svaar_dev_only@localhost:5433
 
 Feature tests cover behavior and trust rules, not implementation details: the dispatcher never runs a risky tool unconfirmed, a confirmation runs at most once under concurrent attempts, invites are single-use, duplicates take effect once, and absent evidence never contradicts a claim. Every provider integration (Caspian, Telegram, Bolna, Jev, GitHub, Jira, the chat LLM) is mocked behind its adapter in tests.
 
-CI installs the locked environment, checks formatting and lint, runs migrations and tests against PostgreSQL, and validates Compose. Container build and startup should also be checked locally.
+Those feature tests are future acceptance requirements. Current tests cover infrastructure,
+including gateway diagnostic cleanup and refusal to advertise an unimplemented listener.
+
+CI installs the locked environment, checks formatting and lint, runs migrations, the gateway
+infrastructure diagnostic and tests against PostgreSQL, and validates default and gateway-profile
+Compose configuration. Container build and startup should also be checked locally.
 
 ## Team conventions
 
