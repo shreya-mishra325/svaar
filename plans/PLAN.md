@@ -57,19 +57,41 @@ Jev is a decision model, not a chat model. It takes a state and named, typed que
 
 ```mermaid
 flowchart LR
-    Caller[Engineer or source on a call] <--> Bolna[Bolna agents]
-    Bolna -- custom function calls --> Voice[voice package]
-    Bolna -- status webhooks --> Voice
-    Voice --> Inc[incidents package]
-    Voice --> Dec[decisions package]
-    Dec --> Jev[Jev gateway]
-    Inc --> DB[(PostgreSQL)]
-    Dec --> DB
-    Voice --> DB
-    Inc --> Res[resolution package]
-    Res --> Val[Deterministic validator]
-    Res --> App[approvals package]
-    Inc --> Rep[replay package]
+    Caller["Engineer or source on a call"] <--> Bolna["Bolna agents"]
+    Bolna -- "custom function calls, token checked" --> Voice
+    Bolna -- "status webhooks, IP checked" --> Voice
+
+    subgraph Svaar["Svaar"]
+        Voice["voice package"]
+        Inc["incidents package"]
+        Res["resolution package"]
+        Val["Deterministic validator"]
+        Rep["replay package"]
+        Appr["approvals package"]
+        Int["integrations package"]
+        subgraph Dec["decisions package"]
+            Adapter["Jev adapter"]
+            Pol["Policy layer"]
+            Fb["Heuristic fallback"]
+        end
+    end
+
+    Voice --> Inc
+    Voice --> Adapter
+    Voice --> Appr
+    Adapter --> Pol
+    Adapter -. "Jev unavailable or low confidence" .-> Fb
+    Fb --> Pol
+    Pol --> Inc
+    Inc --> Res
+    Res --> Val
+    Res --> Appr
+    Inc --> Rep
+
+    Adapter --> Jev["Jev gateway"]
+    Svaar --> DB[("PostgreSQL")]
+    Int --> Commerce["Demo commerce backend"]
+    Int -. "later, separate deployment" .-> Cerebro["Cerebro"]
 ```
 
 ### Package ownership
