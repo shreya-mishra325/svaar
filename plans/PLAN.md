@@ -4,13 +4,17 @@ Target: Bolna Buildathon submission, due Oct 31, 2026. Shortlist interviews run 
 
 Core rule: **Jev decides, deterministic code enforces, Bolna speaks.**
 
-This is a working plan. Keep it out of the repository (for example, add it to `.git/info/exclude`).
+Local working document. Do not commit it and do not place it in `plans/`. Add it to `.git/info/exclude`:
+
+```bash
+echo "plan.md" >> .git/info/exclude
+```
 
 ---
 
 ## 1. Goal
 
-Extend Cerebro's multi-channel agent (Slack, Discord, Telegram, email) with voice, and give it a decision engine that is typed, auditable and bounded. The system must demonstrate one complete incident loop:
+Voice-enable an incident workflow for a commerce backend in Svaar, with Jev as the typed, auditable source of decisions. One complete loop must work end to end:
 
 1. Reconstruct what happened from recorded events.
 2. Verify human and system claims by calling authorized sources.
@@ -21,80 +25,102 @@ Extend Cerebro's multi-channel agent (Slack, Discord, Telegram, email) with voic
 
 Domain: a commerce backend with payment, inventory and carrier services. Nothing outside that domain is in scope.
 
-## 2. Roles of the three components
+Cerebro is not on the critical path. Svaar is an independent service with no Cerebro code. A Cerebro adapter, if time allows, lives in `integrations` and is built last.
+
+## 2. Starting point: the Svaar foundation
+
+Already in place (do not rebuild): FastAPI modular monolith, `app.py` composition, `config.py`, `db.py`, `logging.py`, `/health` and `/ready` probes, error envelope, JSON logging, Alembic with an empty `0001` baseline, Docker Compose with PostgreSQL, Ruff, pytest and CI.
+
+Existing packages: `incidents`, `decisions`, `voice`, `resolution`, `replay`, `approvals`, `integrations`, `web`, `jobs`, `api`.
+
+Rules inherited from Svaar's foundation:
+
+- Feature packages may import shared utilities. Shared utilities never import feature packages. Domain code never imports `app.py`.
+- Each feature exposes its own `APIRouter`, included in `api/router.py`. Business routes inherit `/api/v1`.
+- Use `def` for handlers and dependencies that touch SQL. Never run blocking SQL inside `async def`.
+- Use `Depends(get_session)`. The caller owns the transaction and commits explicitly.
+- Models inherit `svaar.db.Base`. Import each model module in `migrations/env.py` before autogenerating. Name every check constraint explicitly.
+- External SDKs and HTTP contracts stay behind adapters, mocked in tests.
+- Logs use fixed event names. Never log request bodies, headers, URLs with credentials, transcripts or phone numbers.
+
+## 3. Roles of the three components
 
 | Component | Role | Does not do |
 |---|---|---|
-| Bolna | Voice interface: inbound and outbound calls, speech, telephony, call transcripts | Make policy decisions |
+| Bolna | Voice interface: inbound and outbound calls, speech, telephony, transcripts | Make policy decisions |
 | Jev | Typed decisions with confidence: choices, scores, yes/no probabilities | Generate language, or act as final authority on hard constraints |
-| Orchestrator and validator (our code) | State machine, ledger, constraint enforcement, actions | Guess when evidence is missing |
+| Svaar | State machine, ledger, constraint enforcement, actions | Guess when evidence is missing |
 
 Jev is a decision model, not a chat model. It takes a state and named, typed questions and returns one typed answer per question, with probabilities and a confidence value. All spoken words come from the LLM configured inside the Bolna agent.
 
-## 3. Architecture
+## 4. Architecture
 
 ```mermaid
 flowchart LR
     Caller[Engineer or source on a call] <--> Bolna[Bolna agents]
-    Bolna -- custom function calls --> API[Orchestrator API]
-    Bolna -- status webhooks --> API
-    Chat[Slack, Discord, Telegram, email] <--> API
-    API --> Policy[Policy layer]
-    Policy --> Jev[Jev adapter]
-    Jev --> Policy
-    API --> Ledger[(Ledger)]
-    API --> Neg[Negotiation agents]
-    Neg --> Validator[Deterministic validator]
-    Validator --> API
-    API --> Sandbox[Replay sandbox]
-    API --> Redline[Redline export]
+    Bolna -- custom function calls --> Voice[voice package]
+    Bolna -- status webhooks --> Voice
+    Voice --> Inc[incidents package]
+    Voice --> Dec[decisions package]
+    Dec --> Jev[Jev gateway]
+    Inc --> DB[(PostgreSQL)]
+    Dec --> DB
+    Voice --> DB
+    Inc --> Res[resolution package]
+    Res --> Val[Deterministic validator]
+    Res --> App[approvals package]
+    Inc --> Rep[replay package]
 ```
 
-### Components
+### Package ownership
 
-- **Orchestrator API (FastAPI):** owns the incident state machine: investigate, verify, negotiate, validate, replay, approve.
-- **Jev adapter:** one internal interface in front of whichever Jev gateway is used, so the gateway can change without touching callers.
-- **Policy layer:** converts a Jev answer plus confidence into one of three outcomes: act automatically, ask a human by voice, or defer.
-- **Heuristic fallback:** deterministic rules that run when Jev is unreachable, errors, or returns low confidence.
-- **Ledger (Postgres):** shared state for every module.
-- **Validator:** plain code that checks proposals against hard constraints. No model in the loop.
-- **Sandbox:** disposable Docker services for replay and fault injection.
+| Package | Owns |
+|---|---|
+| `incidents` | `events`, `claims`, `evidence`, timelines, incident state machine |
+| `decisions` | Jev adapter, heuristic fallback, policy layer, `decisions` table |
+| `voice` | Bolna client, `voice_calls`, `voice_webhook_events`, custom function endpoints, auth |
+| `resolution` | `constraints`, `negotiation_rounds`, negotiation agents, validator, redline draft |
+| `replay` | Sandbox runs, simulated results (never written to `events`) |
+| `approvals` | Human approval records and spoken-confirmation records |
+| `integrations` | Replaceable adapters (Cerebro last, demo commerce backend) |
 
-## 4. Jev integration
+## 5. Jev decisions
 
-### What Jev is used for
+### Decision slots
 
-| Decision slot | Question type | Code that acts on the result |
+| Slot | Question type | Code that acts on it |
 |---|---|---|
 | Classify a call answer (confirmed, denied, unsure, wrong person, callback) | choice | Writes an evidence record |
 | Propose a claim status | choice | Only an explicit contradicting evidence record can set `contradicted`; otherwise `unverified` |
-| Pick the next source or question to ask | choice | Triggers a verification call |
+| Pick the next source or question | choice | Triggers a verification call |
 | Escalate to a phone call now | noul (yes/no) | Threshold check, then outbound call |
-| Is a requested action risky or irreversible | noul | Requires spoken confirmation before acting |
+| Is a requested action risky or irreversible | noul | Requires spoken confirmation |
 | Pre-screen a negotiation proposal | score | Ranking only; the validator decides validity |
 
-### Policy thresholds
+### Policy layer
 
 | Outcome | Condition |
 |---|---|
 | Act automatically | Confidence at or above the high threshold and the action is reversible |
-| Ask by voice | Confidence between the thresholds, or the action is risky |
+| Ask by voice | Confidence between thresholds, or the action is risky |
 | Defer or use fallback | Confidence below the low threshold, Jev unavailable, or response invalid |
 
-Thresholds start as configuration values and are tuned on a small labelled set of real call transcripts. The vendor's calibration claim is not assumed.
+Thresholds are configuration values, tuned on a small labelled set of your own call transcripts. The vendor's calibration claim is not assumed.
 
-### Gateway options
+Data minimization: send Jev only what the question needs. Redact phone numbers and personal data from `state`.
+
+### Gateways
 
 Jev is reachable through several routes with different request shapes. Verify the exact body for the chosen route before coding.
 
-- TypeSafe's native System One API
+- TypeSafe native System One API
 - NanoGPT: `POST https://nano-gpt.com/api/v1/decisions`
 - Inworld: `POST https://api.inworld.ai/alpha/decisions` (alpha)
 - LiteLLM, Portkey or Bifrost `/v1/decisions` routes
 
-Common to all: a `state`, a map of named questions, question types `noul`, `choice` and `score`, and `criteria` required on choice questions. Pin the model version (for example `jev-1.13.0`) so decisions are reproducible.
+Common to all: a `state`, named typed questions (`noul`, `choice`, `score`), and `criteria` on choice questions. Pin the model version (for example `jev-1.13.0`).
 
-### Adapter interface
+### Adapter interface (synchronous, to match Svaar's thread-pool model)
 
 ```python
 from dataclasses import dataclass
@@ -103,7 +129,7 @@ from typing import Mapping, Protocol, Sequence
 
 @dataclass(frozen=True)
 class Decision:
-    """A typed decision returned by the decision engine.
+    """A typed decision returned by Jev or the heuristic fallback.
 
     Attributes:
         name: The question name the answer belongs to.
@@ -123,43 +149,60 @@ class Decision:
 class DecisionEngine(Protocol):
     """Interface implemented by the Jev adapter and the heuristic fallback."""
 
-    async def decide(
+    def decide(
         self, state: str, questions: Mapping[str, dict]
     ) -> Sequence[Decision]:
         """Answer typed questions about a state.
 
         Args:
-            state: Unstructured description of the situation.
+            state: Description of the situation, with personal data redacted.
             questions: Named typed questions, keyed by question name.
 
         Returns:
             One Decision per question, in request order.
 
         Raises:
-            DecisionUnavailableError: If the engine cannot produce an answer.
+            DecisionUnavailableError: If the engine cannot answer within
+                the configured timeout or returns an invalid response.
         """
         ...
 ```
 
-### Audit trail
+Use `httpx.Client` with explicit connect and read timeouts. A timeout or invalid payload raises `DecisionUnavailableError`, and the policy layer routes to the heuristic fallback.
 
-Every decision is written to a `decisions` table: state hash, question, answer, confidence, model version, policy outcome and the action taken. This makes behavior replayable and reviewable.
+## 6. Bolna integration
 
-## 5. Bolna integration
+Facts from Bolna's documentation:
 
-Findings from Bolna's documentation:
+- Base URL `https://api.bolna.ai`, Bearer auth. A wrong or missing key returns `401`.
+- `GET /user/me` returns wallet balance and concurrency (`max` and `current`). Check it before every test session.
+- `POST /v2/agent` creates an agent and returns `201` with `agent_id` and `state`. `toolchain.pipelines` is an array of arrays. The full config is large.
+- `webhook_url` is set inside `agent_config`, or in the dashboard Extractions tab ("Push all execution data to webhook").
+- `POST /call` takes `agent_id` and `recipient_phone_number` (E.164) and returns `execution_id`. Omit `from_phone_number` to use Bolna's default number. Context goes in `user_data` variables.
+- Webhooks send several POSTs per call, distinguished by `status`. `call-disconnected` arrives with empty duration, cost, recording and extractions. Treat `completed` as finished.
+- Final statuses: `completed`, `no-answer`, `busy`, `failed`, `canceled`, `stopped`, `error`, `balance-low`.
+- Bolna sends webhooks from `13.203.39.153`, `13.126.9.249` and `13.202.133.53`.
+- Executions include `transcript`, `extracted_data`, `cost_breakdown` and `latency_data.time_to_first_audio`. The unit of the latency value is not stated in the docs; confirm before quoting it.
+- `scheduled_at` needs `+00:00` rather than `Z` and at least two minutes ahead. Only relevant if scheduling is used.
 
-- Base URL `https://api.bolna.ai`, Bearer authentication. A wrong or missing key returns `401`.
-- `POST /v2/agent` creates an agent and returns `201`. The response field is `state`. `toolchain.pipelines` is an array of arrays, for example `[["transcriber","llm","synthesizer"]]`.
-- `POST /call` takes `agent_id` and `recipient_phone_number` in E.164 format, and returns an `execution_id`. Context can be passed through `user_data` variables.
-- Wait for the `completed` status, not `call-disconnected`. At disconnect, duration, cost, recording and extracted data are still empty.
-- Webhooks send several POSTs per call and are distinguished by `status`. Bolna sends them from three fixed IPs that must be allowlisted: `13.203.39.153`, `13.126.9.249`, `13.202.133.53`.
-- `scheduled_at` must use `+00:00` rather than `Z`, at least two minutes ahead. Only relevant if scheduling is used.
-- Executions include `transcript`, `extracted_data`, `cost_breakdown` and `latency_data.time_to_first_audio`.
+### Create the first agent in the dashboard
+
+Use Auto Build in the dashboard, then copy the `agent_id`. This is the fastest route and avoids the large API config on day one. Codify the config through the API later only if time remains.
+
+### Status handling
+
+| Bolna status | Svaar action |
+|---|---|
+| `completed` | Parse transcript and extractions, run Jev classification, write evidence, update claim |
+| `no-answer`, `busy`, `failed`, `canceled`, `stopped`, `error` | Mark the call outcome failed; the claim stays `unverified` |
+| `balance-low` | Alert the operator; no claim change |
+| Anything else | Record and ignore |
+
+A failed or unanswered call never produces `contradicted`.
 
 ### Mid-call tools as custom functions
 
-Each tool is a custom function that calls our API. The `key` must be exactly `custom_task`.
+Each tool is a custom function that calls Svaar. The `key` must be exactly `custom_task`.
 
 ```json
 {
@@ -169,10 +212,7 @@ Each tool is a custom function that calls our API. The `key` must be exactly `cu
   "parameters": {
     "type": "object",
     "properties": {
-      "incident_id": {
-        "type": "string",
-        "description": "The incident identifier"
-      }
+      "incident_id": { "type": "string", "description": "The incident identifier" }
     },
     "required": ["incident_id"]
   },
@@ -180,137 +220,113 @@ Each tool is a custom function that calls our API. The `key` must be exactly `cu
   "value": {
     "method": "GET",
     "param": { "incident_id": "%(incident_id)s" },
-    "url": "https://<public-host>/incidents/timeline",
-    "api_token": "Bearer <token>",
+    "url": "https://<tunnel-host>/api/v1/voice/tools/get_timeline",
+    "api_token": "Bearer <voice-tool-token>",
     "headers": {}
   }
 }
 ```
 
-Planned tools:
-
 | Tool | Purpose |
 |---|---|
 | `get_timeline` | Read observed events for an incident |
-| `list_claims` | Read claims and their evidence status |
+| `list_claims` | Read claims and evidence status |
 | `record_claim_answer` | Store a source's answer as evidence |
 | `confirm_action` | Capture spoken confirmation for a risky action |
 | `request_replay` | Start a sandbox replay |
 
-Notes:
+Calls run inside the live conversation, so handlers must be fast. Use `pre_call_message` to cover short waits. A graph agent (node-based call flow) is a candidate for the outbound verification script; read its docs before committing.
 
-- Custom function calls run inside the live conversation, so endpoints must respond quickly. Use `pre_call_message` to cover short waits.
-- The pre-call webhook is fire-and-forget and never blocks the call.
-- A graph agent (node-based call flow) is a candidate for the verification script, to keep outbound questions bounded. Read its documentation before committing to it.
-- Sarvam is available as an Indian-language transcriber and voice if Hindi or Hinglish is added.
+### Voice security
 
-## 6. Data model
+Svaar has no general authentication, and Bolna needs a public HTTPS endpoint. Compensate on the voice surface only:
 
-```sql
--- Observed history only. Never mixed with simulated rows.
-CREATE TABLE events (
-  id BIGSERIAL PRIMARY KEY,
-  incident_id UUID NOT NULL,
-  service TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  payload JSONB NOT NULL,
-  occurred_at TIMESTAMPTZ NOT NULL,
-  trace_id TEXT
-);
+- Tool endpoints require a bearer token (the custom function's `api_token`), compared in constant time.
+- The status webhook accepts only Bolna's three IPs. Check how the tunnel forwards the client address before trusting it; if it cannot be trusted, also require a shared secret in the `webhook_url` path or header.
+- Expose only `/api/v1/voice` through the tunnel. Keep `/docs` and every other route local.
+- Never log transcripts, phone numbers, tokens or payloads.
 
--- A statement made by a person or system.
-CREATE TABLE claims (
-  id UUID PRIMARY KEY,
-  incident_id UUID NOT NULL,
-  source TEXT NOT NULL,
-  statement TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('confirmed','contradicted','unverified'))
-);
+### Idempotency and transactions
 
--- Provenance: what supports or contradicts a claim.
-CREATE TABLE evidence (
-  id UUID PRIMARY KEY,
-  claim_id UUID NOT NULL REFERENCES claims(id),
-  event_id BIGINT REFERENCES events(id),
-  call_id TEXT,
-  stance TEXT NOT NULL CHECK (stance IN ('supports','contradicts'))
-);
+External calls are not atomic with database commits.
 
--- Hard rules the validator enforces.
-CREATE TABLE constraints (
-  id UUID PRIMARY KEY,
-  owner_service TEXT NOT NULL,
-  rule JSONB NOT NULL
-);
+1. Commit a `voice_calls` row with state `pending` and the claim reference.
+2. Place the call. On success, store the `execution_id` and commit. On failure, mark `failed` and commit.
+3. Webhooks are deduplicated on unique `(execution_id, status)` in `voice_webhook_events`. Reprocessing a duplicate is a no-op.
+4. Handlers are safe to replay.
 
-CREATE TABLE negotiation_rounds (
-  id UUID PRIMARY KEY,
-  negotiation_id UUID NOT NULL,
-  agent TEXT NOT NULL,
-  proposal JSONB NOT NULL,
-  valid BOOLEAN,
-  violations JSONB
-);
+## 7. Data model
 
--- Audit trail for every decision-engine answer.
-CREATE TABLE decisions (
-  id UUID PRIMARY KEY,
-  incident_id UUID,
-  state_hash TEXT NOT NULL,
-  question TEXT NOT NULL,
-  answer JSONB NOT NULL,
-  confidence DOUBLE PRECISION,
-  model_version TEXT NOT NULL,
-  policy_outcome TEXT NOT NULL,
-  action_taken TEXT,
-  decided_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
+Build SQLAlchemy models on `svaar.db.Base` inside the owning package, one Alembic revision per change, explicit constraint names. Coordinate migration heads before merging.
 
-## 7. API surface
-
-| Method | Route | Purpose |
+| Table | Package | Key columns |
 |---|---|---|
-| POST | `/incidents` | Open an incident |
-| GET | `/incidents/{id}/timeline` | Observed events in order |
-| POST | `/incidents/{id}/replay` | Run a what-if in the sandbox, returned as simulated |
-| GET | `/incidents/{id}/claims` | Claims with status and evidence |
-| POST | `/claims/{id}/verify` | Trigger an outbound verification call |
-| POST | `/voice/status` | Receive Bolna status webhooks |
-| POST | `/voice/tools/{tool}` | Receive Bolna custom function calls |
-| POST | `/negotiations` | Start a negotiation |
-| POST | `/negotiations/{id}/validate` | Run the deterministic validator |
-| GET | `/incidents/{id}/redline` | Export the draft for approval |
+| `events` | incidents | incident_id, service, kind, payload (JSONB), occurred_at, trace_id |
+| `claims` | incidents | incident_id, source, statement, status in (`confirmed`, `contradicted`, `unverified`) |
+| `evidence` | incidents | claim_id, event_id (nullable), call_id (nullable), stance in (`supports`, `contradicts`) |
+| `decisions` | decisions | incident_id (plain UUID, no cross-package FK), state_hash, question, answer, confidence, model_version, policy_outcome, action_taken, decided_at |
+| `voice_calls` | voice | claim_id (plain UUID), execution_id (unique, nullable until placed), state, created_at |
+| `voice_webhook_events` | voice | execution_id, status, received_at; unique (execution_id, status) |
+| `constraints` | resolution | owner_service, rule (JSONB) |
+| `negotiation_rounds` | resolution | negotiation_id, agent, proposal (JSONB), valid, violations (JSONB) |
+| `approvals` | approvals | subject_type, subject_id, decision, decided_by, decided_at |
 
-Keep route names consistent and avoid duplicates. One folder per module under a single package.
+Boundary rules:
 
-## 8. Trust guarantees
+- Simulated output lives in `replay` tables and is never inserted into `events`.
+- Cross-package references use plain identifiers, not imports of another package's models, so `decisions` stays independent of `incidents`.
 
-Enforced in code, not left to prompts.
+## 8. API surface
+
+All business routes sit under `/api/v1`.
+
+| Method | Route | Package | Purpose |
+|---|---|---|---|
+| POST | `/incidents` | incidents | Open an incident |
+| GET | `/incidents/{id}/timeline` | incidents | Observed events in order |
+| GET | `/incidents/{id}/claims` | incidents | Claims with status and evidence |
+| POST | `/claims/{id}/verify` | voice | Place an outbound verification call |
+| POST | `/voice/status` | voice | Bolna status webhook (IP checked) |
+| GET/POST | `/voice/tools/{tool}` | voice | Bolna custom functions (token checked) |
+| POST | `/incidents/{id}/replay` | replay | Run a what-if, returned as simulated |
+| POST | `/negotiations` | resolution | Start a negotiation |
+| POST | `/negotiations/{id}/validate` | resolution | Run the deterministic validator |
+| GET | `/incidents/{id}/redline` | resolution | Export the draft for approval |
+| POST | `/approvals` | approvals | Record a human approval |
+
+Use Pydantic request and response models, explicit status codes, and the shared error envelope. Add only routes that are implemented. Check for duplicate routes and naming drift before every merge.
+
+## 9. Trust guarantees
+
+Enforced in code and covered by tests.
 
 - Observed history and simulation are stored and displayed as different types.
-- Missing evidence leaves a claim `unverified`. The system never implies that a person lied.
+- Missing evidence leaves a claim `unverified`. A failed, unanswered or ambiguous call never produces `contradicted`, and Svaar never implies a person lied.
 - The validator, not Jev, decides whether a proposal satisfies hard constraints.
-- Risky or irreversible actions need spoken confirmation.
+- Risky or irreversible actions need spoken confirmation, recorded in `approvals`.
 - Outbound calls go only to authorized sources and use bounded questions.
 - Contract drafts are redlines for human approval. They are not legal advice.
 
-## 9. Schedule to Oct 31
+## 10. Schedule to Oct 31
+
+Start date Oct 18, 13 days. Target a complete, recorded demo by Oct 30 and submit on the morning of Oct 31. Check the submission form's cutoff time now.
 
 | Dates | Work | Done when |
 |---|---|---|
-| Oct 17 to 18 | Obtain a Jev key, build the adapter, `decisions` table, policy layer and heuristic fallback | A unit-tested adapter returns typed decisions and falls back cleanly |
-| Oct 19 to 20 | Create the Bolna agent through the API, outbound `/call`, public webhook with IP allowlist, status handling | A real test call reaches your own number and `completed` is processed |
-| Oct 21 to 23 | Custom functions (`get_timeline`, `list_claims`, `record_claim_answer`, `confirm_action`), event instrumentation of the demo backend, timeline reconstruction | You can ask by voice why a payment failed and hear the ordered events |
-| Oct 24 to 26 | Claims and evidence flow with Jev classification, verification call script, evidence-aware follow-ups | A call to a source produces evidence and updates claim status correctly |
-| Oct 27 to 28 | Negotiation agents, deterministic validator, Jev pre-screening | A proposal is rejected, revised, then approved |
-| Oct 29 | Sandbox replay with one fault type, redline export | Replay is labelled simulated; a redline file exports |
-| Oct 30 | Demo script, rehearsal, recording, measure time to first audio | A clean take under three minutes |
-| Oct 31 | Submission write-up and final checks | Submitted before the deadline |
+| Oct 18 to 19 | Obtain a Jev key; build the sync adapter, heuristic fallback, policy layer and `decisions` model and migration; add voice auth dependency | Adapter tests pass for success, timeout, invalid payload and low confidence; `alembic check` is clean |
+| Oct 20 to 21 | Dashboard agent, outbound client, `voice_calls` and `voice_webhook_events`, status handler with IP check and dedupe, tunnel | A real call reaches your phone and `completed` is processed once, even if delivered twice |
+| Oct 22 to 24 | `incidents` models, demo commerce backend instrumentation, timeline endpoint, `get_timeline` and `list_claims` tools | You ask by voice why a payment failed and hear ordered events |
+| Oct 25 to 26 | Claims and evidence flow, verification script, Jev classification, `record_claim_answer` | A verification call produces evidence and the correct claim status, including `no-answer` staying `unverified` |
+| Oct 27 to 28 | Negotiation agents, validator, Jev pre-screening, `confirm_action` and `approvals` | A proposal is rejected, revised, then approved; a risky action waits for spoken confirmation |
+| Oct 29 | One replay fault type in the sandbox; redline export | Replay is labelled simulated; a redline file exports |
+| Oct 30 | Rehearse, record the demo, measure time to first audio | A clean take under three minutes |
+| Oct 31 | Submission write-up and final checks | Submitted |
 
-Cut order if time runs short: redline export, then sandbox fault variety, then Jev pre-screening of proposals. The ledger, validator, claims flow and voice loop are never cut.
+Cut order if time runs short: Cerebro adapter, redline export, replay fault variety, Jev pre-screening of proposals. The ledger, validator, claims flow, voice loop and decision audit are never cut.
 
-## 10. Demo script (about 3 minutes)
+Each milestone ends with `ruff format --check`, `ruff check`, `alembic check` and `pytest` passing.
+
+## 11. Demo script (about 3 minutes)
 
 1. Ask by voice why an order's payment failed. The timeline shows the event order and a retry bug.
 2. Operations reports the shipment as dispatched, but no warehouse scan exists. The agent calls the warehouse. Jev classifies the answer, the policy layer applies it, and the claim is confirmed or left unverified.
@@ -318,39 +334,48 @@ Cut order if time runs short: redline export, then sandbox fault variety, then J
 4. The corrected sequence replays in the sandbox, shown as simulated.
 5. A redline of the SLA exception is exported for approval.
 
-Show the decisions table on screen once, with confidence values and the policy outcome for each decision. It makes the "decision engine" claim concrete.
+Show the `decisions` table once, with confidence values and policy outcomes, to make Jev's role concrete.
 
-## 11. Testing
+## 12. Testing
 
-- **Adapter:** mocked gateway responses, invalid responses, timeouts and low confidence all route to the fallback.
-- **Validator:** table-driven tests for each hard constraint, including cases that must be rejected.
-- **Trust rules:** a test proving that absent evidence can never produce `contradicted`.
-- **Calls:** a labelled set of transcripts for tuning thresholds, plus at least five real end-to-end calls before submission.
-- **Latency:** record `time_to_first_audio` from executions and report the median.
+- **Adapter:** mocked gateway for success, invalid payload, timeout and low confidence; all failures route to the fallback.
+- **Policy:** boundary tests at each threshold, including risky-action override.
+- **Validator:** table-driven tests per hard constraint, including must-reject cases.
+- **Trust rules:** absent evidence, `no-answer` and `busy` can never produce `contradicted`.
+- **Voice security:** missing or wrong token is rejected; a request from a non-allowlisted IP is rejected; no sensitive data appears in logs.
+- **Idempotency:** a duplicate `(execution_id, status)` webhook changes nothing; a failed call placement leaves a recoverable `voice_calls` row.
+- **Migrations:** PostgreSQL tests run when `SVAAR_TEST_DATABASE_URL` points at a dedicated disposable database.
+- **Calls:** a labelled transcript set for tuning thresholds, plus at least five real end-to-end calls before submission.
+- **Latency:** record `time_to_first_audio` from executions and report the median with its confirmed unit.
 
-## 12. Risks and mitigations
+## 13. Risks and mitigations
 
 | Risk | Mitigation |
 |---|---|
 | Some Jev gateways are alpha and request shapes differ | Adapter interface, pinned model version, heuristic fallback |
-| Jev has documented failure modes and the calibration claim is the vendor's | Tune thresholds on your own labelled transcripts; validator remains final |
-| Custom function latency inside live calls | Fast endpoints, `pre_call_message`, no heavy work in the request path |
-| Wallet credits and telephony setup | Check balance with `GET /user/me`, use a test number, confirm the telephony number early |
-| Webhook delivery failures | Public HTTPS endpoint, allowlist Bolna's three IPs, idempotent handlers |
-| Scope too wide for 14 days | Fixed cut order in section 9 |
+| Jev has documented failure modes; calibration is the vendor's claim | Tune on your own transcripts; validator remains final |
+| Public endpoint on an unauthenticated app | Voice-only exposure, bearer token, IP check, no sensitive logging |
+| Custom function latency inside live calls | Fast sync handlers, `pre_call_message`, no heavy work in the request path |
+| Wallet credits, concurrency (max 10), telephony setup | `GET /user/me` before sessions, test number, confirm outbound number early |
+| Duplicate or reordered webhooks | Unique dedupe key, replay-safe handlers |
+| Scope too wide for 13 days | Fixed cut order in section 10 |
 | Voice agent drifts off script | Tight prompts, bounded tools, graph agent for outbound scripts if suitable |
 
-## 13. Open items
+## 14. Open items
 
-- Confirm which Jev gateway and key will be used, and the exact request body for it.
-- Read Bolna's graph agent and extractions pages before choosing the verification call design.
-- Decide whether a Hindi or Hinglish option is included in the demo.
+- Confirm the Jev gateway, key and exact request body.
+- Read Bolna's graph agent and extractions pages before fixing the verification call design.
+- Confirm the unit of `time_to_first_audio`.
+- Decide whether a Hindi or Hinglish option is in the demo.
 - Choose the telephony number for outbound calls.
+- Confirm the submission cutoff time.
 
-## 14. Working rules
+## 15. Working rules
 
 - Work on feature branches. Never push to main directly unless explicitly decided.
-- No agent, roadmap or handoff documents in the repository, including this file.
-- Write docstrings per each language's standard convention.
+- Never mention Claude as a co-author.
+- No agent, roadmap or handoff documents pushed, including this file.
+- Docstrings per each language's standard convention.
+- No em dashes and no emoji in documents, comments or code.
 - Check for redundant routes, folders and naming issues before every merge.
 - Write precise commit messages.
