@@ -1,4 +1,4 @@
-# Plan: Build Svaar, a voice-enabled agent that reconstructs incidents, verifies claims by phone, and negotiates a validated fix
+# Plan: Svaar, a voice-enabled agent that reconstructs incidents, verifies claims by phone, and negotiates a validated fix
 
 Target: Bolna Buildathon submission, due Oct 31, 2026. Shortlist interviews run Nov 5 to 7 and the top three pitch in Bengaluru on Nov 20.
 
@@ -14,9 +14,11 @@ echo "plan.md" >> .git/info/exclude
 
 ## 1. Goal
 
-Svaar is its own agent. Like Cerebro, it lives in team chat, knows who people are, uses tools through a model loop, and watches CI. Unlike Cerebro, it is built around incidents and adds Bolna voice, Jev decisions and verifiable resolution.
+Svaar is an agent for engineering incidents. It lives in team chat through the Caspian SDK, knows who people are, uses tools through a model loop, watches CI, and talks to engineers on the phone through Bolna. It reconstructs what happened from recorded events, checks status claims against evidence, negotiates conflicting constraints, and accepts only validated plans.
 
-Svaar does not run on top of Cerebro and does not depend on a Cerebro deployment. Cerebro (pinned at commit `443355a` in its handoff document) is the reference for patterns worth porting and for flaws to avoid.
+Svaar has one brain. The same agent, the same tool registry and the same approval gate serve chat and voice. Chat arrives through Caspian. Voice arrives through Bolna, which acts only as the voice layer: it turns the caller's speech into text, hands that text to Svaar, speaks the text Svaar returns, and sends the final transcript when the call ends. Bolna never calls a tool and never decides anything.
+
+Svaar is a new codebase. Cerebro (pinned at commit `443355a` in its handoff document) is the reference for patterns worth porting and for flaws to avoid. Svaar does not run on top of Cerebro and does not depend on a Cerebro deployment.
 
 One complete loop must work end to end:
 
@@ -30,17 +32,28 @@ One complete loop must work end to end:
 
 Domain: engineering team operations. Nothing outside that domain is in scope.
 
-## 2. Porting Cerebro: what to take, rewrite and drop
+## 2. Principles
 
-Cerebro's handoff tells an agent not to copy its code. You own both projects and decided Svaar's agent is built from Cerebro's code, so this plan ports patterns as new code under Svaar's conventions (synchronous SQL, adapters, docstrings, tests) instead of copying files wholesale. Several Cerebro modules carry flaws listed in section 3, and copying them would import those flaws.
+| Principle | Meaning |
+|---|---|
+| One brain | A single agent loop serves every channel. Transports differ, the loop, tools and policies do not |
+| One gate | Every tool call, from chat or from a call, goes through the `actions` dispatcher. No handler is ever called directly |
+| Voice is a transport | Bolna supplies speech in, speech out, telephony and the final transcript. Svaar supplies all words and all decisions |
+| Jev decides, code enforces | Jev returns typed decisions with confidence. Deterministic code validates, authorizes and acts. Jev never executes anything |
+| Observations and simulations never mix | Replay output stays in `replay` tables and never enters `events` |
+| Missing evidence is not contradiction | Absent evidence, `no-answer`, `busy` and failed calls never mark a claim `contradicted` |
+
+## 3. Porting Cerebro: what to take, rewrite and drop
+
+Cerebro's handoff tells an agent not to copy its code. You own both projects and decided Svaar's agent is built from Cerebro's code, so this plan ports patterns as new code under Svaar's conventions (synchronous SQL, adapters, docstrings, tests) instead of copying files wholesale. Several Cerebro modules carry flaws listed in section 4, and copying them would import those flaws.
 
 ### Port (adapt to Svaar's rules)
 
 | Piece | Cerebro source | Svaar package | Change |
 |---|---|---|---|
-| Tool definition and registry (`ToolSpec`) | `src/cerebro/registry.py` | `actions` | Add Pydantic argument validation and enforced risk tiers |
-| Tool loop with native and JSON modes | `src/cerebro/cortex/loop.py` | `agent` | Fix round-limit behavior, cap calls per round |
-| Prompt assembly from registry | `src/cerebro/cortex/prompts.py` | `agent` | Keep generated tool policy; Svaar-specific guardrails |
+| Tool definition and registry (`ToolSpec`) | `src/cerebro/registry.py` | `actions` | Add Pydantic argument validation, enforced risk tiers and per-channel permissions |
+| Tool loop with native and JSON modes | `src/cerebro/cortex/loop.py` | `agent` | Fix round-limit behavior, cap calls per round, add a tighter voice profile |
+| Prompt assembly from registry | `src/cerebro/cortex/prompts.py` | `agent` | Keep generated tool policy; add Svaar guardrails and a spoken-style variant |
 | Chat-completions client | `src/cerebro/cortex/featherless.py` | `agent` | OpenAI-compatible adapter with retry and total deadline |
 | Light Markdown to HTML | `src/cerebro/formatting.py` | `agent` | Port as is, with tests |
 | Population model (ops, dev, lead, admin) | `src/cerebro/db/models.py` | `identity` | Drop the client population |
@@ -62,7 +75,7 @@ Cerebro's handoff tells an agent not to copy its code. You own both projects and
 
 Orders, tasks and assignment, gap chases, summaries, meetings and reminders, Zoom and Google Calendar adapters, the population crossing policy and redaction, the client population, nudges, the admin dashboard, the landing site and Redis.
 
-## 3. Cerebro's flaws and Svaar's fixes
+## 4. Cerebro's flaws and Svaar's fixes
 
 | Cerebro flaw (from the handoff) | Svaar design |
 |---|---|
@@ -79,19 +92,22 @@ Orders, tasks and assignment, gap chases, summaries, meetings and reminders, Zoo
 | Confirmation committed before the action runs, with no concurrency control | One atomic state change (`pending` to `confirmed`) with a unique execution record keyed by confirmation ID |
 | Scheduler callback exception can end all jobs | Each job guarded individually; rows claimed with `FOR UPDATE SKIP LOCKED` so two processes never take the same row |
 | Duplicate GitHub deliveries repeat side effects | `X-GitHub-Delivery` stored in `webhook_deliveries` with a unique constraint |
-| One deployment-wide admin token for everything | A separate operator token only for operator routes; voice and webhook routes have their own credentials |
+| One deployment-wide admin token for everything | A separate operator token only for operator routes; voice, channel and webhook routes have their own credentials |
 
-## 4. Architecture
+## 5. Architecture
 
 ```mermaid
 flowchart TD
-    Chat["Telegram, Slack"] <--> Agent["agent"]
+    Chat["Chat channels"] <--> Caspian["Caspian SDK"]
+    Caspian <--> Agent["agent"]
     Agent --> LLM["Chat LLM"]
     Agent --> Identity["identity"]
     Agent --> Actions["actions"]
-    Caller["Engineer on a call"] <--> Bolna["Bolna"]
-    Bolna <--> Voice["voice"]
-    Voice --> Actions
+    Caller["Engineer on a call"] <--> Bolna["Bolna: speech in, speech out"]
+    Bolna -- "caller text, one request per turn" --> Voice["voice"]
+    Voice -- "reply text to speak" --> Bolna
+    Voice -. "turn runner" .-> Agent
+    Bolna -- "final transcript" --> Voice
     Actions --> Approvals["approvals"]
     Actions --> Incidents["incidents"]
     Actions --> Resolution["resolution"]
@@ -103,16 +119,16 @@ flowchart TD
     Jobs["jobs"] --> Incidents
 
     classDef external stroke-dasharray: 4 3
-    class Chat,LLM,Caller,Bolna,Jev,Sources external
+    class Chat,Caspian,LLM,Caller,Bolna,Jev,Sources external
 ```
 
-Dashed boxes are outside Svaar. Solid boxes are Svaar packages.
+Dashed boxes are outside Svaar. Solid boxes are Svaar packages. The dotted arrow from `voice` to `agent` is a runtime call through an injected protocol, not an import (see Composition).
 
-Every action, from the chat agent or from a Bolna call, passes through one path in `actions`:
+Every action, from chat or from a call, passes through one path in `actions`:
 
 ```mermaid
 flowchart LR
-    Request["Tool call from the agent or from Bolna"] --> Authz["Role and organization check"]
+    Request["Tool call from the agent loop"] --> Authz["Role, organization and channel check"]
     Authz --> Valid["Argument validation"]
     Valid --> Tier{"Risk tier"}
     Tier -- "1" --> Run["Execute"]
@@ -122,6 +138,26 @@ flowchart LR
     Decide -- "denied or expired" --> Stop["Stop"]
     Run --> Record["Write tool_executions record"]
     Stop --> Record
+```
+
+One voice turn:
+
+```mermaid
+sequenceDiagram
+    participant C as Caller
+    participant B as Bolna
+    participant V as voice route
+    participant A as agent loop
+    participant X as actions
+    C->>B: speaks
+    B->>V: caller text for this turn
+    V->>V: resolve call, principal and mission
+    V->>A: run_turn(call, text)
+    A->>X: tool calls, if any
+    X-->>A: results or confirmation required
+    A-->>V: short spoken reply
+    V-->>B: reply text
+    B-->>C: speaks
 ```
 
 Decision path inside the `decisions` package:
@@ -146,97 +182,136 @@ flowchart LR
 
 | Process | Runs | Why |
 |---|---|---|
-| Svaar API (`app` container) | FastAPI: voice routes, GitHub webhook, incident routes, operator routes | Request and response work |
-| Svaar gateway (new `gateway` container) | Channel listeners, tool loop, outbox sender, polling loop in `jobs` | Long-running listeners must not live in request handlers |
+| Svaar API (`app` container) | FastAPI: voice routes, GitHub webhook, incident routes, operator routes, and the channel webhook route if Caspian delivers by webhook | Request and response work. Voice turns run the agent loop in this process |
+| Svaar gateway (`gateway` container) | Caspian listener, outbox sender, polling loop in `jobs` | Long-running listeners must not live in request handlers |
 
-Add `gateway` to Docker Compose next to `app`, started after the `migrate` container. Telegram long polling and Slack Socket Mode need no public endpoint. Only Bolna and GitHub need to reach Svaar, so only `/api/v1/voice` and `/api/v1/webhooks/github` go through the tunnel.
+Add `gateway` to Docker Compose next to `app`, started after the `migrate` container. Only Bolna, GitHub and (in webhook mode) Caspian need to reach Svaar. The tunnel exposes `/api/v1/voice`, `/api/v1/webhooks/github` and, only if required, `/api/v1/channels/caspian`. Everything else, including `/docs`, stays local.
+
+### Composition
+
+`agent` and `voice` never import each other. `voice` defines a `TurnRunner` protocol:
+
+```python
+class TurnRunner(Protocol):
+    """Runs one conversational turn for a call and returns the text to speak."""
+
+    def run_turn(self, call_id: str, text: str) -> str:
+        """Process the caller's words and return the reply to speak.
+
+        Args:
+            call_id: Identifier of the Svaar voice call.
+            text: The caller's transcribed words for this turn.
+
+        Returns:
+            Short spoken-style reply text.
+        """
+        ...
+```
+
+Application startup constructs `agent`'s implementation and injects it into `voice`. Both `agent` and `voice` depend on `actions` and `identity`, never on each other.
 
 ### Package ownership
 
 | Package | Status | Owns |
 |---|---|---|
-| `agent` | new | Channel transports, inbound dedupe, conversation memory, LLM adapter, tool loop, prompts, outbox sender |
+| `agent` | new | Channel transports (Caspian, Telegram), inbound dedupe, conversation memory, LLM adapter, tool loop (chat and voice profiles), prompts, outbox sender, `TurnRunner` implementation |
 | `identity` | new | Organizations, principals, roles, channel bindings (including verified phones), invites, enrollment |
 | `actions` | new | Tool registry, argument validation, authorization, risk tiers, dispatcher, `tool_executions` |
 | `incidents` | existing | `events`, `claims`, `evidence`, timelines, incident state machine, failure fingerprints |
 | `decisions` | existing | Jev adapter, heuristic fallback, policy layer, `decisions` table |
-| `voice` | existing | Bolna client, `voice_calls`, `voice_webhook_events`, custom function endpoints, voice auth |
+| `voice` | existing | Bolna client, `voice_calls`, `voice_turns`, `voice_webhook_events`, turn routes, call missions, voice auth |
 | `resolution` | existing | `constraints`, `negotiation_rounds`, negotiation agents, validator, exception draft |
 | `replay` | existing | Sandbox runs and simulated results (never written to `events`) |
 | `approvals` | existing | `confirmations` and confirmation decisions |
 | `integrations` | existing | GitHub App adapter and webhook, Jira adapter, `webhook_deliveries`, `repo_mappings` |
 | `jobs` | existing | Guarded polling loop for acknowledgement deadlines, outbox retries and stale confirmations |
+| `api` | existing | Router composition, infrastructure probes, error conventions |
+| `web` | existing | Future operator interface |
 
-The three new packages change the package table in the README, so coordinate with teammates before adding them. `voice` and `agent` both depend on `actions` and never on each other.
+The three new packages change the package table in the README, so coordinate with teammates before adding them.
 
-## 5. The agent
+## 6. The agent
 
 ### Channels
 
 Define a `ChannelTransport` protocol in `agent`: receive a message (channel, sender address, external message ID, thread or chat ID, text) and send a message. Implementations, in build order:
 
-1. **Telegram** through the Bot API with long polling. Simplest, needs no public endpoint, works on a phone for the demo.
-2. **Slack** through Socket Mode, if time allows.
-3. **Caspian SDK**, only if your Caspian account works. Cerebro delegates all four channels to it, but the handoff could not confirm its transport details, so it is a bonus, not a dependency.
+1. **Caspian SDK.** The channel layer for every chat source Svaar listens on. One transport, many channels.
+2. **Telegram** through the Bot API with long polling. Direct, no public endpoint, selectable by configuration. It exists behind the same protocol so the agent never depends on which transport is active.
 
-Email and Discord are cut.
+Email and Discord are cut. Slack is available only if the Caspian account carries it.
+
+The Caspian transport depends on facts that must be confirmed by a smoke check on Oct 18 (section 19). The check decides the transport mode (webhook, polling or socket), whether sender identity is authenticated, and which channels the account carries. If the smoke check fails or is unclear at the end of Oct 19, `SVAAR_CHANNEL_TRANSPORT` is set to `telegram` and the build continues unchanged.
 
 ### Identity and enrollment
 
 - An operator creates a single-use invite for a role and organization (`POST /api/v1/invites`, operator token).
-- A person redeems the invite in chat by sending its code. Redemption creates the principal and a verified binding for that channel and address, and marks the invite used.
+- A person redeems the invite in chat by sending its code. Redemption creates the principal and a verified binding for that channel and address, and marks the invite used. A sender identity that the transport does not authenticate never produces a verified binding.
 - Roles: `ops`, `dev`, `lead`, `admin`. Role changes are admin-only for the MVP.
-- Phone binding: the person registers a number in chat. Svaar generates a six-digit code, shows it in chat, and places a Bolna call that asks the person to read it aloud. The `verify_phone_code` function checks it. Only verified phones are ever called.
+- Phone binding: the person registers a number in chat. Svaar generates a six-digit code, shows it in chat, and places a `phone_verify` call that asks the person to read it aloud. The `verify_phone_code` tool compares the spoken digits exactly. Only verified phones are ever called.
 
 ### Conversation loop
 
-Port Cerebro's loop with these rules:
+Port Cerebro's loop with these rules.
 
-- At most four model rounds and four tool calls per round. The limit is checked before any call runs.
+| Rule | Chat profile | Voice profile |
+|---|---|---|
+| Model rounds per turn | 4 | 2 |
+| Tool calls per round | 4 | 2 |
+| Total turn deadline | 45 seconds | 8 seconds, then a fixed spoken fallback line |
+| HTTP timeout and retry | 30 seconds, one retry on timeout or 5xx | 6 seconds, no retry |
+| Reply style | Light Markdown | Plain spoken sentences, two at most, no markdown, numbers and IDs read plainly |
+
+Shared rules:
+
+- The round and call limits are checked before any call runs.
 - Native tool calls first, JSON-mode parsing as a fallback.
-- Arguments validated against the tool's Pydantic model. A failure is returned to the model as a tool error.
-- An HTTP timeout of 30 seconds, one retry on timeout or 5xx, and a 45-second total deadline per turn.
-- Conversation memory per (channel, thread or chat) with a bounded history window. Tool calls and results are recorded in `tool_executions`, not replayed raw into every prompt.
+- Arguments are validated against the tool's Pydantic model. A failure is returned to the model as a tool error.
+- Conversation memory is per (channel, thread or chat), and per call for voice, with a bounded history window. Tool calls and results are recorded in `tool_executions`, not replayed raw into every prompt.
 - Dedupe on the transport's own message ID before any work.
-- Replies go through the outbox so every outbound message has a delivery state.
+- Chat replies go through the outbox so every outbound message has a delivery state.
+- The tool policy in the prompt is generated from the registry for the active channel and mission, so the model is only offered tools it is allowed to call.
 
 ### LLM
 
-An OpenAI-compatible chat-completions adapter, configured by base URL, key and model. Run a native-tool-call smoke check against the chosen model on Oct 20 before building on it (Cerebro kept a similar `smoke_tools.py` for this).
+An OpenAI-compatible chat-completions adapter, configured by base URL, key and model. Run a native-tool-call smoke check against the chosen model on Oct 20 before building on it (Cerebro kept a similar `smoke_tools.py` for this). Voice turns use the same model and adapter with the voice profile, so choose a model whose first-token latency suits a phone call.
 
-## 6. Actions and approvals
+## 7. Actions and approvals
 
 ### Tool registry
 
-Each tool has: name, description, Pydantic argument model, handler, allowed roles, risk tier and a flag for whether it may be called by voice. The prompt's tool policy is generated from the registry so prompt and permissions cannot drift.
+Each tool has: name, description, Pydantic argument model, handler, allowed roles, risk tier and the channels it may be called from. The prompt's tool policy is generated from the registry so prompt and permissions cannot drift.
 
-| Tool | Roles | Tier | Voice |
+| Tool | Roles | Tier | Channels |
 |---|---|---|---|
-| `whoami` | all | 1 | yes |
-| `open_incident` | ops, dev, lead, admin | 1 | no |
-| `acknowledge_incident` | ops, dev, lead, admin | 1 | yes |
-| `get_timeline` | ops, dev, lead, admin | 1 | yes |
-| `list_claims` | ops, dev, lead, admin | 1 | yes |
-| `verify_claim` | lead, admin | 2 when the target is not the incident owner, else 1 | no |
-| `record_claim_answer` | called by Svaar from a verified call only | 1 | yes |
-| `list_ci_runs`, `explain_ci_failure` | dev, lead, admin | 1 | no |
-| `create_jira_ticket` | dev, lead, admin | 2 | no |
-| `rerun_workflow`, `dispatch_workflow`, `cancel_run` | lead, admin | 2 | no |
-| `request_replay` | dev, lead, admin | 1 | yes |
-| `start_negotiation` | lead, admin | 1 | no |
-| `approve_exception` | lead, admin | 2 | no |
-| `confirm_action` | the confirmation's owner | n/a | yes |
+| `whoami` | all | 1 | chat, voice |
+| `open_incident` | ops, dev, lead, admin | 1 | chat |
+| `acknowledge_incident` | ops, dev, lead, admin | 1 | chat, voice |
+| `get_timeline` | ops, dev, lead, admin | 1 | chat, voice |
+| `list_claims` | ops, dev, lead, admin | 1 | chat, voice |
+| `verify_claim` | lead, admin | 2 when the target is not the incident owner, else 1 | chat |
+| `record_claim_answer` | called only inside a verified `claim_check` call | 1 | voice |
+| `verify_phone_code` | called only inside a `phone_verify` call | 1 | voice |
+| `list_ci_runs`, `explain_ci_failure` | dev, lead, admin | 1 | chat |
+| `create_jira_ticket` | dev, lead, admin | 2 | chat |
+| `rerun_workflow`, `dispatch_workflow`, `cancel_run` | lead, admin | 2 | chat |
+| `request_replay` | dev, lead, admin | 1 | chat, voice |
+| `start_negotiation` | lead, admin | 1 | chat |
+| `approve_exception` | lead, admin | 2 | chat |
+| `confirm_action` | the confirmation's owner | n/a | chat, voice |
+
+Tier-2 tools requested during a call do not run. The dispatcher creates a confirmation, and the caller is told, in one short sentence, that a confirmation code was sent to chat.
 
 ### Confirmation (tier 2)
 
 1. The dispatcher creates a `confirmations` row: nonce, hash of the action and arguments, requester, expiry (ten minutes), state `pending`.
 2. The owner receives the nonce in chat. Confirmation must come from the owner on a different verified channel when they have two (chat plus phone). Confirmation on the same channel is refused unless the operator has enabled it for the demo.
-3. On a call, the engineer confirms by reading the nonce aloud. Svaar compares it exactly; a model's "yes" is never enough.
+3. When the owner has a verified phone, Svaar places a `confirmation` call. The owner reads the nonce aloud. The agent passes the caller's raw words to `confirm_action`, which compares them exactly in code. A model's "yes" is never enough.
 4. `pending` to `confirmed` is a single conditional update. The action then runs once, keyed by the confirmation ID, so a retry cannot run it twice.
 5. Denied, expired and failed outcomes are recorded and the action does not run. Failed actions are never retried automatically.
 6. Authorization is rechecked at execution time, not only when the confirmation was created.
 
-## 7. Incident features
+## 8. Incident features
 
 ### Reconstruct
 
@@ -244,7 +319,7 @@ Each tool has: name, description, Pydantic argument model, handler, allowed role
 
 ### Verify
 
-Claims come from chat: Jev's `noul` question decides whether a message states verifiable work status. Evidence lookup against events is deterministic. A claim like "fix merged" needs a merge event by query. With no supporting event the claim is `unverified`, and Svaar may call the person through Bolna with a bounded script. The answer is classified by Jev and written as evidence. Missing evidence, `no-answer`, `busy` and failed calls never produce `contradicted`.
+Claims come from chat: Jev's `noul` question decides whether a message states verifiable work status. Evidence lookup against events is deterministic. A claim like "fix merged" needs a merge event by query. With no supporting event the claim is `unverified`, and Svaar may place a `claim_check` call. The agent runs the call as a bounded mission with one tool, `record_claim_answer`. After the call completes, Jev classifies the answer from the final transcript and deterministic code writes evidence. Missing evidence, `no-answer`, `busy` and failed calls never produce `contradicted`.
 
 ### Negotiate
 
@@ -254,9 +329,9 @@ Three agents with hard constraints in `constraints`: release schedule (freeze wi
 
 `replay` runs the corrected sequence against isolated state with recorded or fake adapters. It never writes to `events` and never calls GitHub, Jira or Bolna. Results are typed `simulated`. `resolution` exports a tracked-change exception draft; it is not legal or compliance advice, and `approve_exception` needs tier-2 confirmation.
 
-## 8. Jev decisions
+## 9. Jev decisions
 
-Jev is a decision model, not a chat model. It takes a state and named, typed questions and returns one typed answer per question, with probabilities and a confidence value. All spoken words come from the LLM configured inside the Bolna agent, and all chat replies come from Svaar's chat LLM.
+Jev is a decision model, not a chat model. It takes a state and named, typed questions and returns one typed answer per question, with probabilities and a confidence value. All words Svaar says, in chat or on a call, come from Svaar's chat LLM. Bolna only voices them.
 
 ### Decision slots
 
@@ -334,7 +409,9 @@ class DecisionEngine(Protocol):
 
 Use `httpx.Client` with explicit connect and read timeouts. A timeout or invalid payload raises `DecisionUnavailableError`, and the policy layer routes to the heuristic fallback.
 
-## 9. Bolna integration
+## 10. Bolna integration
+
+Bolna is the voice layer. Its job on every call is: transcribe the caller, hand the text to Svaar, speak what Svaar returns, and report the final transcript.
 
 Facts from Bolna's documentation:
 
@@ -351,59 +428,93 @@ Facts from Bolna's documentation:
 
 Create the first agent in the dashboard with Auto Build and copy the `agent_id`. Codify the config through the API only if time remains.
 
-### Status handling
+### Calls are missions
 
-| Bolna status | Svaar action |
-|---|---|
-| `completed` | Parse transcript and extractions, run Jev classification, write evidence, update claim |
-| `no-answer`, `busy`, `failed`, `canceled`, `stopped`, `error` | Mark the call failed; the claim stays `unverified`; tell the requester in chat through the outbox |
-| `balance-low` | Alert the operator in chat; no claim change |
-| Anything else | Record and ignore |
+Svaar only places outbound calls. Each call row in `voice_calls` carries a mission, and the mission limits what the agent can do on that call.
 
-### Mid-call tools
+| Mission | Trigger | Tools offered to the agent | Ends when |
+|---|---|---|---|
+| `escalation` | Acknowledgement deadline expired | `whoami`, `acknowledge_incident`, `get_timeline`, `list_claims`, `request_replay`, `confirm_action` | Caller acknowledges or hangs up |
+| `claim_check` | A claim is `unverified` | `record_claim_answer` | Answer recorded or caller hangs up |
+| `phone_verify` | A person registered a phone | `verify_phone_code` | Code accepted, rejected or caller hangs up |
+| `confirmation` | A tier-2 confirmation is pending for a person with a verified phone | `confirm_action` | Nonce accepted, rejected or caller hangs up |
 
-Each Bolna custom function calls a Svaar route that maps to a registry tool flagged for voice. The `key` must be exactly `custom_task`.
+The caller is identified by the number Svaar dialled and the verified binding for it, never by anything the model or the caller says. Inbound calls are out of scope.
+
+### How each turn reaches Svaar
+
+Two wiring modes exist. Both call the same `TurnRunner`, and the mode is configuration (`SVAAR_VOICE_TURN_MODE`). Confirm which one the Bolna account supports during the Oct 18 smoke check.
+
+| Mode | How | Notes |
+|---|---|---|
+| `llm_endpoint` | Bolna's LLM setting points at Svaar's OpenAI-compatible route `POST /api/v1/voice/llm/chat/completions`. Bolna sends the conversation each turn and speaks the reply | Preferred. Bolna's own model is bypassed, so a turn has one LLM hop. Needs streaming or fast non-streaming replies |
+| `function` | The Bolna agent prompt tells its model to call one custom function, `ask_svaar`, with the caller's exact words and to speak the returned text verbatim | Fallback. Uses documented custom functions. Adds one Bolna LLM hop per turn |
+
+The route identifies the call from a per-call reference that Svaar passes through `user_data` when it places the call. In `function` mode the reference is a function parameter. In `llm_endpoint` mode it is read from the system message. Confirm on a test call that Bolna delivers the reference in the chosen mode.
+
+Pass-through function definition for `function` mode. The `key` must be exactly `custom_task`.
 
 ```json
 {
-  "name": "get_timeline",
-  "description": "Called when the engineer asks what happened in an incident or why a deploy failed.",
-  "pre_call_message": "One moment while I pull the timeline.",
+  "name": "ask_svaar",
+  "description": "Called on every caller turn. Pass the caller's exact words and speak the returned text verbatim.",
+  "pre_call_message": "One moment.",
   "parameters": {
     "type": "object",
     "properties": {
-      "incident_id": { "type": "string", "description": "The incident identifier" }
+      "utterance": { "type": "string", "description": "The caller's exact words" }
     },
-    "required": ["incident_id"]
+    "required": ["utterance"]
   },
   "key": "custom_task",
   "value": {
-    "method": "GET",
-    "param": { "incident_id": "%(incident_id)s" },
-    "url": "https://<tunnel-host>/api/v1/voice/tools/get_timeline",
-    "api_token": "Bearer <voice-tool-token>",
+    "method": "POST",
+    "param": { "call_ref": "%(call_ref)s", "utterance": "%(utterance)s" },
+    "url": "https://<tunnel-host>/api/v1/voice/turn",
+    "api_token": "Bearer <voice-turn-token>",
     "headers": {}
   }
 }
 ```
 
-Voice tools: `whoami`, `acknowledge_incident`, `get_timeline`, `list_claims`, `record_claim_answer`, `request_replay`, `confirm_action` and `verify_phone_code`. The caller is identified by the verified phone number bound to the call, not by anything the model says. Calls run inside the live conversation, so handlers must be fast; use `pre_call_message` for short waits. A graph agent (node-based call flow) is a candidate for the outbound verification script; read its docs before committing.
+### Turn handling
+
+1. Authenticate the bearer token in constant time.
+2. Resolve the `voice_calls` row, the principal and the mission from the call reference. Unknown or closed calls get a fixed spoken refusal.
+3. Compute the turn index. If `voice_turns` already holds a reply for `(voice_call_id, turn_index)`, return it without running the agent. A retried request never repeats tool calls.
+4. Call `TurnRunner.run_turn` with the voice profile and the mission's tool set.
+5. Store the reply in `voice_turns`, return it.
+6. On timeout, agent error or invalid state, return a fixed spoken line ("I can't check that right now, I will message you"), enqueue the detail to chat through the outbox, and keep the call row open.
+
+### Status handling
+
+| Bolna status | Svaar action |
+|---|---|
+| `completed` | Parse transcript and extractions, run Jev classification, write evidence, update claim, close the call row |
+| `no-answer`, `busy`, `failed`, `canceled`, `stopped`, `error` | Mark the call failed; the claim stays `unverified`; tell the requester in chat through the outbox |
+| `balance-low` | Alert the operator in chat; no claim change |
+| Anything else | Record and ignore |
+
+### Transcripts
+
+Per-turn caller text and replies are stored in `messages` under the call's conversation so the agent has history. The final transcript from the `completed` webhook feeds Jev classification and the audit trail. Transcripts have a retention limit and are never logged.
 
 ### Voice security
 
-- Tool routes require a bearer token (the custom function's `api_token`), compared in constant time.
-- The status webhook accepts only Bolna's three IPs. Check how the tunnel forwards the client address; if it cannot be trusted, also require a shared secret in the `webhook_url` path or header.
-- Expose only `/api/v1/voice` and `/api/v1/webhooks/github`. Keep `/docs` and every other route local.
+- The turn routes require a bearer token (the Bolna agent's `api_token` or LLM key), compared in constant time.
+- The status webhook accepts only Bolna's three IPs. Check how the tunnel forwards the client address; if it cannot be trusted, also require a shared secret in the `webhook_url` path or header. Confirm whether turn requests come from the same addresses before relying on an IP check for them.
+- Expose only the routes listed in section 5. Keep `/docs` and every other route local.
 - Never log transcripts, phone numbers, message text, tokens or payloads.
 
 ### Idempotency
 
-1. Commit a `voice_calls` row as `pending` with the claim or incident reference.
+1. Commit a `voice_calls` row as `pending` with its mission and the claim, incident or confirmation reference.
 2. Place the call. On success store the `execution_id`; on failure mark `failed`. Commit each step.
-3. Deduplicate webhooks on unique `(execution_id, status)` in `voice_webhook_events`.
-4. Handlers are safe to replay.
+3. Deduplicate status webhooks on unique `(execution_id, status)` in `voice_webhook_events`.
+4. Deduplicate turns on unique `(voice_call_id, turn_index)` in `voice_turns`.
+5. Handlers are safe to replay.
 
-## 10. GitHub and Jira
+## 11. GitHub and Jira
 
 - `POST /api/v1/webhooks/github` verifies HMAC-SHA256 over the raw body (`X-Hub-Signature-256`), then deduplicates on `X-GitHub-Delivery`. Malformed JSON returns 400; unsupported events return 200 with `handled: false`.
 - The repository maps to an organization through `repo_mappings`. An unmapped repository is rejected and logged.
@@ -411,7 +522,7 @@ Voice tools: `whoami`, `acknowledge_incident`, `get_timeline`, `list_claims`, `r
 - GitHub App auth: RS256 JWT with a nine-minute lifetime exchanged for an installation token, cached until five minutes before expiry.
 - Jira: create and read issues with basic auth (email and API token). Creation is tier 2.
 
-## 11. Data model
+## 12. Data model
 
 Build SQLAlchemy models on `svaar.db.Base` inside the owning package, one Alembic revision per change, explicit constraint names, `timestamptz` columns. Coordinate migration heads before merging. Cross-package references use plain identifiers.
 
@@ -419,19 +530,20 @@ Build SQLAlchemy models on `svaar.db.Base` inside the owning package, one Alembi
 |---|---|---|
 | `orgs` | identity | id, name |
 | `principals` | identity | org_id, role in (`ops`, `dev`, `lead`, `admin`), display_name; unique (org_id, email) |
-| `channel_bindings` | identity | principal_id, channel (telegram, slack, phone), address, verified_at; unique (channel, address) |
+| `channel_bindings` | identity | principal_id, channel (`caspian:<channel type>`, `telegram`, `phone`), address, verified_at; unique (channel, address) |
 | `invites` | identity | org_id, role, code_hash, expires_at, used_at |
-| `conversations` | agent | channel, thread_id, principal_id; unique (channel, thread_id) |
+| `conversations` | agent | channel, thread_id, principal_id; unique (channel, thread_id). For calls, channel is `voice` and thread_id is the call ID |
 | `messages` | agent | conversation_id, role, content, created_at |
 | `inbound_messages` | agent | channel, external_message_id, state (`received`, `processed`, `failed`); unique (channel, external_message_id) |
 | `outbox_messages` | agent | channel, address, body, state (`pending`, `sent`, `failed`), attempts, delivery_id, created_at, sent_at |
-| `tool_executions` | actions | principal_id, tool, args_hash, status, risk_tier, correlation_id, created_at |
+| `tool_executions` | actions | principal_id, tool, args_hash, status, risk_tier, channel, correlation_id, created_at |
 | `confirmations` | approvals | principal_id, action, action_hash, nonce_hash, state, expires_at, resolved_at, execution_key (unique) |
 | `events` | incidents | incident_id, source, external_id, kind, payload (JSONB), occurred_at; unique (source, external_id) |
 | `claims` | incidents | incident_id, author, statement, status in (`confirmed`, `contradicted`, `unverified`) |
 | `evidence` | incidents | claim_id, event_id (nullable), call_id (nullable), stance in (`supports`, `contradicts`) |
 | `decisions` | decisions | incident_id, state_hash, question, answer, confidence, model_version, policy_outcome, action_taken, decided_at |
-| `voice_calls` | voice | incident_id, claim_id, execution_id (unique, nullable until placed), state, created_at |
+| `voice_calls` | voice | principal_id, mission, incident_id, claim_id, confirmation_id, call_ref (unique), execution_id (unique, nullable until placed), state, created_at |
+| `voice_turns` | voice | voice_call_id, turn_index, reply, created_at; unique (voice_call_id, turn_index) |
 | `voice_webhook_events` | voice | execution_id, status, received_at; unique (execution_id, status) |
 | `webhook_deliveries` | integrations | source, delivery_id, received_at; unique (source, delivery_id) |
 | `repo_mappings` | integrations | repository, org_id; unique (repository) |
@@ -439,11 +551,11 @@ Build SQLAlchemy models on `svaar.db.Base` inside the owning package, one Alembi
 | `negotiation_rounds` | resolution | negotiation_id, agent, proposal (JSONB), valid, violations (JSONB) |
 | `replay_runs` | replay | incident_id, scenario, result (JSONB), kind fixed to `simulated` |
 
-Boundary rules: simulated output stays in `replay` tables and never enters `events`. `decisions` and `voice` hold plain incident and claim identifiers, with no imports of `incidents` models.
+Boundary rules: simulated output stays in `replay` tables and never enters `events`. `decisions` and `voice` hold plain incident, claim and confirmation identifiers, with no imports of `incidents` or `approvals` models.
 
-## 12. API surface
+## 13. API surface
 
-All business routes sit under `/api/v1`. The agent's chat loop runs in the gateway process and has no HTTP route.
+All business routes sit under `/api/v1`. The Caspian listener and the chat loop run in the gateway process and have no HTTP route, unless the smoke check shows Caspian delivers by webhook.
 
 | Method | Route | Package | Auth | Purpose |
 |---|---|---|---|---|
@@ -452,17 +564,19 @@ All business routes sit under `/api/v1`. The agent's chat loop runs in the gatew
 | GET | `/incidents/{id}/timeline` | incidents | operator token | Observed events in order |
 | GET | `/incidents/{id}/claims` | incidents | operator token | Claims with status and evidence |
 | POST | `/webhooks/github` | integrations | HMAC | Receive workflow events |
-| POST | `/claims/{id}/verify` | voice | operator token | Place an outbound verification call |
-| POST | `/voice/status` | voice | Bolna IPs | Bolna status webhook |
-| GET, POST | `/voice/tools/{tool}` | voice | voice token | Bolna custom functions |
+| POST | `/channels/caspian` | agent | Caspian credential | Receive chat messages, only in webhook mode |
+| POST | `/claims/{id}/verify` | voice | operator token | Place a `claim_check` call |
+| POST | `/voice/turn` | voice | voice turn token | One caller turn, `function` mode |
+| POST | `/voice/llm/chat/completions` | voice | voice turn token | One caller turn, `llm_endpoint` mode |
+| POST | `/voice/status` | voice | Bolna IPs and secret | Bolna status webhook |
 | POST | `/incidents/{id}/replay` | replay | operator token | Run a what-if, returned as simulated |
 | POST | `/negotiations` | resolution | operator token | Start a negotiation |
 | POST | `/negotiations/{id}/validate` | resolution | operator token | Run the deterministic validator |
 | GET | `/incidents/{id}/exception-draft` | resolution | operator token | Export the tracked-change draft |
 
-Use Pydantic request and response models, explicit status codes and the shared error envelope. Add only routes that are implemented. Check for duplicate routes and naming drift before every merge.
+Only the turn route for the selected `SVAAR_VOICE_TURN_MODE` is registered. Use Pydantic request and response models, explicit status codes and the shared error envelope. Add only routes that are implemented. Check for duplicate routes and naming drift before every merge.
 
-## 13. Configuration (planned names, all with the `SVAAR_` prefix)
+## 14. Configuration (planned names, all with the `SVAAR_` prefix)
 
 Validate at application construction; secrets have no defaults and are never logged.
 
@@ -470,80 +584,96 @@ Validate at application construction; secrets have no defaults and are never log
 |---|---|
 | Operator | `SVAAR_OPERATOR_TOKEN` |
 | Chat LLM | `SVAAR_LLM_BASE_URL`, `SVAAR_LLM_API_KEY`, `SVAAR_LLM_MODEL` |
-| Channels | `SVAAR_TELEGRAM_BOT_TOKEN`, `SVAAR_SLACK_BOT_TOKEN`, `SVAAR_SLACK_APP_TOKEN` |
+| Channels | `SVAAR_CHANNEL_TRANSPORT` (`caspian` or `telegram`), `SVAAR_CASPIAN_API_KEY`, `SVAAR_CASPIAN_BASE_URL`, `SVAAR_CASPIAN_WEBHOOK_SECRET` (webhook mode only), `SVAAR_TELEGRAM_BOT_TOKEN` |
 | Jev | `SVAAR_JEV_BASE_URL`, `SVAAR_JEV_API_KEY`, `SVAAR_JEV_MODEL`, `SVAAR_POLICY_HIGH`, `SVAAR_POLICY_LOW` |
-| Bolna | `SVAAR_BOLNA_API_KEY`, `SVAAR_BOLNA_AGENT_ID`, `SVAAR_VOICE_TOOL_TOKEN` |
+| Bolna | `SVAAR_BOLNA_API_KEY`, `SVAAR_BOLNA_AGENT_ID`, `SVAAR_VOICE_TURN_MODE` (`llm_endpoint` or `function`), `SVAAR_VOICE_TURN_TOKEN`, `SVAAR_VOICE_STATUS_SECRET` |
 | GitHub | `SVAAR_GITHUB_APP_ID`, `SVAAR_GITHUB_PRIVATE_KEY_B64`, `SVAAR_GITHUB_INSTALLATION_ID`, `SVAAR_GITHUB_WEBHOOK_SECRET` |
 | Jira | `SVAAR_JIRA_BASE_URL`, `SVAAR_JIRA_EMAIL`, `SVAAR_JIRA_API_TOKEN`, `SVAAR_JIRA_DEFAULT_PROJECT_KEY` |
 
-## 14. Schedule to Oct 31
+## 15. Schedule to Oct 31
 
 Start date Oct 18, 13 days. Target a complete, recorded demo by Oct 30 and submit on the morning of Oct 31. Check the submission form's cutoff time now.
 
 | Dates | Work | Done when |
 |---|---|---|
-| Oct 18 to 19 | `identity` (invites, principals, bindings), `actions` (registry, validation, authorization, tier gate, `tool_executions`), `approvals` (atomic confirmations), Jev key, Jev adapter, fallback, policy layer | Unit tests prove a tier-2 tool never runs without a confirmed confirmation, and Jev failures route to the fallback; `alembic check` is clean |
-| Oct 20 to 21 | `agent`: Telegram transport, inbound dedupe, LLM adapter with native-tool smoke check, tool loop, prompts, memory, outbox sender; `gateway` container | You enroll with an invite on Telegram, ask `whoami` and a read tool, and get replies; a resent message is processed once |
-| Oct 22 to 23 | Bolna dashboard agent, outbound client, `voice_calls`, status handler with IP check and dedupe, tunnel, phone verification by read-aloud code, voice tools through `actions` | A real call reaches your phone, the phone verifies, and `completed` is processed once even if delivered twice |
-| Oct 24 to 25 | GitHub webhook (HMAC, delivery dedupe, repo mapping), App adapter, `events`, timeline, failure fingerprints, alerts through the outbox | A failing workflow produces a Telegram alert, and you hear the ordered timeline by chat and by voice |
-| Oct 26 to 27 | Claim detection, evidence lookup, verification call script, Jev classification, acknowledgement, guarded polling loop in `jobs` | An unacknowledged alert becomes a call exactly once, and `no-answer` leaves the claim `unverified` |
-| Oct 28 | Negotiation agents, validator, Jev pre-screening, tier-2 tools confirmed across channels, Jira ticket tool | A proposal is rejected, revised, approved; a rerun waits for a nonce read aloud |
+| Oct 18 | Smoke checks: the six Caspian questions (section 19), whether Bolna accepts a custom LLM endpoint, `GET /user/me`, one outbound Bolna test call to your phone. Start `identity` and `actions` | Caspian and Bolna answers are written down; your phone rings from Bolna |
+| Oct 19 | `actions` (registry, validation, authorization, tier gate, per-channel permissions, `tool_executions`), `approvals` (atomic confirmations), Jev key, Jev adapter, fallback, policy layer. Transport and turn mode locked at end of day | Unit tests prove a tier-2 tool never runs without a confirmed confirmation, and Jev failures route to the fallback; `alembic check` is clean |
+| Oct 20 to 21 | `agent`: transport protocol, Caspian transport (or Telegram), inbound dedupe, LLM adapter with native-tool smoke check, tool loop with chat and voice profiles, prompts, memory, outbox sender, `TurnRunner`; `gateway` container | You enroll with an invite in chat, ask `whoami` and a read tool, and get replies; a resent message is processed once |
+| Oct 22 to 23 | `voice`: outbound client, `voice_calls` with missions, turn route, `voice_turns` idempotency, status handler with IP check and dedupe, tunnel, `phone_verify` mission | A real call reaches your phone, the phone verifies, a spoken question is answered by the agent, and `completed` is processed once even if delivered twice |
+| Oct 24 to 25 | GitHub webhook (HMAC, delivery dedupe, repo mapping), App adapter, `events`, timeline, failure fingerprints, alerts through the outbox | A failing workflow produces a chat alert, and you hear the ordered timeline by chat and by voice |
+| Oct 26 to 27 | Claim detection, evidence lookup, `claim_check` and `escalation` missions, Jev classification, acknowledgement, guarded polling loop in `jobs` | An unacknowledged alert becomes a call exactly once, and `no-answer` leaves the claim `unverified` |
+| Oct 28 | Negotiation agents, validator, Jev pre-screening, `confirmation` mission, tier-2 tools confirmed across channels, Jira ticket tool | A proposal is rejected, revised, approved; a rerun waits for a nonce read aloud |
 | Oct 29 | One replay of a failed pipeline in the sandbox; exception draft export | Replay is labelled simulated; a draft file exports |
-| Oct 30 | Rehearse, record the demo, measure time to first audio | A clean take under three minutes |
+| Oct 30 | Rehearse, record the demo, measure turn latency and time to first audio | A clean take under three minutes |
 | Oct 31 | Submission write-up and final checks | Submitted |
 
-Cut order if time runs short: exception draft export, Jira tool, replay variety, Jev pre-screening, Slack. Never cut: identity, the `actions` gate, one working channel, the Bolna loop, the timeline, the claims flow, the decision audit.
+Cut order if time runs short: exception draft export, Jira tool, replay variety, Jev pre-screening, Slack through Caspian. Never cut: identity, the `actions` gate, one working channel, the Bolna loop, the timeline, the claims flow, the decision audit.
 
 Each milestone ends with `ruff format --check`, `ruff check`, `alembic check` and `pytest` passing.
 
-## 15. Demo script (about 3 minutes)
+## 16. Demo script (about 3 minutes)
 
-1. A deploy fails in the demo repository. Svaar alerts the owner on Telegram. Nobody acknowledges, so Svaar calls them.
-2. Ask by voice what happened. The timeline shows the order and the failing step.
+1. A deploy fails in the demo repository. Svaar alerts the owner in chat. Nobody acknowledges, so Svaar calls them.
+2. On the call, the engineer asks what happened. The agent answers from the recorded timeline, in two spoken sentences, naming the failing step.
 3. Someone in chat says the fix is merged. Svaar finds no merge event, marks the claim `unverified`, and calls that person. The answer becomes evidence.
-4. A hotfix needs a freeze exception, an off-shift engineer and a deploy slot. The three agents negotiate aloud. The validator rejects one arrangement and approves a revised one.
+4. A hotfix needs a freeze exception, an off-shift engineer and a deploy slot. The three agents negotiate. The validator rejects one arrangement and approves a revised one.
 5. The corrected pipeline replays in the sandbox, shown as simulated.
-6. The lead asks Svaar in chat to rerun the workflow. Svaar creates a confirmation, the lead reads the nonce on the call, and the rerun happens once.
+6. The lead asks Svaar in chat to rerun the workflow. Svaar creates a confirmation and posts the nonce in chat. Svaar calls the lead, the lead reads the nonce aloud, and the rerun happens once.
 
 Show the `decisions` and `tool_executions` tables once, to make Jev's role and the audit trail concrete.
 
-## 16. Testing
+## 17. Testing
 
-- **Dispatcher:** no code path calls a tool handler outside `actions`; tier-2 never runs unconfirmed; authorization is rechecked at execution; a confirmation runs at most once under concurrent attempts.
-- **Tool loop:** round limit stops before running calls; invalid arguments become tool errors; the turn deadline holds.
+- **Dispatcher:** no code path calls a tool handler outside `actions`; tier-2 never runs unconfirmed; authorization is rechecked at execution; a confirmation runs at most once under concurrent attempts; a tool not allowed on the active channel or mission is refused.
+- **Tool loop:** round limit stops before running calls; invalid arguments become tool errors; the chat and voice turn deadlines hold.
+- **Transports:** a contract test suite runs against every `ChannelTransport` implementation; an unauthenticated sender identity never creates a verified binding.
 - **Identity:** invites are single-use and expire; no organization is created from chat; an unverified phone is never called.
-- **Dedupe:** a resent Telegram message and a resent GitHub delivery each take effect once; a failed message can be retried.
+- **Dedupe:** a resent chat message, a resent GitHub delivery and a retried voice turn each take effect once; a failed message can be retried.
 - **Adapter and policy:** mocked Jev for success, invalid payload, timeout and low confidence; boundary tests at each threshold.
 - **Validator:** table-driven tests per hard constraint, including must-reject cases.
 - **Trust rules:** absent evidence, `no-answer` and `busy` never produce `contradicted`.
-- **Voice security:** wrong token and non-allowlisted IP are rejected; no sensitive data in logs.
+- **Missions:** each mission exposes only its tool set; a spoken confirmation succeeds only on the exact nonce.
+- **Voice security:** wrong token and non-allowlisted IP are rejected; no sensitive data in logs; the fixed fallback line is returned when the agent times out.
 - **Polling loop:** two concurrent workers escalate an expired unacknowledged incident exactly once; one job failing does not stop the others.
 - **Migrations:** PostgreSQL tests run when `SVAAR_TEST_DATABASE_URL` points at a dedicated disposable database.
 - **Calls:** a labelled transcript set for tuning thresholds, plus at least five real end-to-end calls before submission.
-- **Latency:** record `time_to_first_audio` and report the median with its confirmed unit.
+- **Latency:** record per-turn latency and `time_to_first_audio`, and report the median with its confirmed unit.
 
-## 17. Risks and mitigations
+## 18. Risks and mitigations
 
 | Risk | Mitigation |
 |---|---|
-| Building an agent plus voice plus negotiation in 13 days | Fixed cut order; Telegram only; port patterns instead of designing from scratch |
-| Porting Cerebro's flaws | Section 3 fixes are acceptance tests, not suggestions |
+| Building an agent plus voice plus negotiation in 13 days | Fixed cut order; port patterns instead of designing from scratch; one transport at a time |
+| Porting Cerebro's flaws | Section 4 fixes are acceptance tests, not suggestions |
+| Caspian transport details are unconfirmed | Oct 18 smoke check, Oct 19 decision gate, Telegram behind the same protocol |
+| Turn latency on live calls (STT, Svaar LLM, TTS, plus Bolna's model in `function` mode) | Prefer `llm_endpoint` mode, voice profile with two rounds and an 8 second deadline, short spoken replies, `pre_call_message` fillers, measure every turn |
 | Chat LLM does not call tools reliably | Native-tool smoke check on Oct 20; JSON-mode fallback |
+| Speech-to-text garbles nonces, IDs and codes | Short speakable alphabet, exact compare in code, read back before commit, expiry, deny by default |
+| Agent or LLM outage leaves a call silent | Fixed spoken fallback line, detail sent to chat through the outbox |
 | Some Jev gateways are alpha and request shapes differ | Adapter interface, pinned version, heuristic fallback |
 | Jev calibration is the vendor's claim | Tune on your own transcripts; validator remains final |
-| Public endpoints on an unauthenticated foundation | Voice and GitHub routes only, bearer token, HMAC, IP check, no sensitive logging |
-| Custom function latency inside live calls | Fast sync handlers, `pre_call_message`, no heavy work in the request path |
+| Public endpoints on a young foundation | Voice, GitHub and (if needed) channel routes only; bearer tokens, HMAC, IP check, no sensitive logging |
 | Wallet credits, concurrency (max 10), telephony setup | `GET /user/me` before sessions, test number, confirm outbound number early |
-| Duplicate or reordered webhooks and messages | Unique dedupe keys, replay-safe handlers |
-| Spoken confirmation misheard | Exact nonce comparison, short alphabet, expiry, deny by default |
+| Duplicate or reordered webhooks, messages and turns | Unique dedupe keys, replay-safe handlers |
 | New packages disturb teammates' work | Agree the package table change before merging |
 
-## 18. Open items
+## 19. Open items
 
+Caspian smoke check, answered on Oct 18:
+
+- Authentication: key type and how an app or bot is registered.
+- Inbound mode: webhook, polling or socket, which decides whether a public channel route is needed.
+- Message shape: stable unique message ID, sender address, thread or chat ID, channel type.
+- Sender trust: whether sender identity is authenticated or only asserted.
+- Outbound: send API, delivery receipts, rate limits.
+- Channels: which channels the account carries.
+
+Other items:
+
+- Confirm whether Bolna accepts a custom LLM endpoint and how it delivers a per-call reference in each turn mode.
 - Confirm the Jev gateway, key and exact request body.
-- Choose the chat LLM and run the native-tool smoke check.
-- Confirm whether the Caspian SDK works for you or Telegram and Slack go direct.
-- Read Bolna's graph agent and extractions pages before fixing the verification call design.
+- Choose the chat LLM and run the native-tool smoke check, including first-token latency for voice.
+- Read Bolna's extractions page before fixing the `claim_check` call design.
 - Confirm the unit of `time_to_first_audio`.
 - Decide whether a Hindi or Hinglish option is in the demo.
 - Choose the telephony number for outbound calls.
@@ -551,7 +681,7 @@ Show the `decisions` and `tool_executions` tables once, to make Jev's role and t
 - Agree the three new packages (`agent`, `identity`, `actions`) with teammates.
 - Confirm the submission cutoff time.
 
-## 19. Working rules
+## 20. Working rules
 
 - Work on feature branches. Never push to main directly unless explicitly decided.
 - Never mention Claude as a co-author.
