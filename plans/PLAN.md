@@ -56,43 +56,46 @@ Jev is a decision model, not a chat model. It takes a state and named, typed que
 ## 4. Architecture
 
 ```mermaid
-flowchart LR
-    Caller["Engineer or source on a call"] <--> Bolna["Bolna agents"]
-    Bolna -- "custom function calls, token checked" --> Voice
-    Bolna -- "status webhooks, IP checked" --> Voice
+flowchart TD
+    Caller["Caller"] <--> Bolna["Bolna"]
+    Bolna --> Voice["voice"]
+    Voice --> Incidents["incidents"]
+    Voice --> Decisions["decisions"]
+    Voice --> Approvals["approvals"]
+    Decisions --> Jev["Jev"]
+    Incidents --> Resolution["resolution"]
+    Resolution --> Validator["Deterministic validator"]
+    Resolution --> Approvals
+    Incidents --> Replay["replay"]
+    Incidents --> Integrations["integrations"]
+    Integrations --> Commerce["Demo commerce backend"]
+    Integrations -.-> Cerebro["Cerebro, later"]
 
-    subgraph Svaar["Svaar"]
-        Voice["voice package"]
-        Inc["incidents package"]
-        Res["resolution package"]
-        Val["Deterministic validator"]
-        Rep["replay package"]
-        Appr["approvals package"]
-        Int["integrations package"]
-        subgraph Dec["decisions package"]
-            Adapter["Jev adapter"]
-            Pol["Policy layer"]
-            Fb["Heuristic fallback"]
-        end
-    end
-
-    Voice --> Inc
-    Voice --> Adapter
-    Voice --> Appr
-    Adapter --> Pol
-    Adapter -. "Jev unavailable or low confidence" .-> Fb
-    Fb --> Pol
-    Pol --> Inc
-    Inc --> Res
-    Res --> Val
-    Res --> Appr
-    Inc --> Rep
-
-    Adapter --> Jev["Jev gateway"]
-    Svaar --> DB[("PostgreSQL")]
-    Int --> Commerce["Demo commerce backend"]
-    Int -. "later, separate deployment" .-> Cerebro["Cerebro"]
+    classDef external stroke-dasharray: 4 3
+    class Caller,Bolna,Jev,Commerce,Cerebro external
 ```
+
+Dashed boxes are external to Svaar. Solid boxes are Svaar packages and its deterministic validator.
+
+Decision path inside the `decisions` package:
+
+```mermaid
+flowchart LR
+    Input["Call transcript or incident event"] --> Adapter["Jev adapter"]
+    Adapter --> Jev["Jev"]
+    Jev --> Policy["Policy layer"]
+    Adapter -. "unavailable or invalid" .-> Fallback["Heuristic fallback"]
+    Fallback --> Policy
+    Policy --> Auto["Act automatically"]
+    Policy --> Ask["Ask by voice"]
+    Policy --> Defer["Defer to a person"]
+    Policy --> Audit["decisions table record"]
+
+    classDef external stroke-dasharray: 4 3
+    class Jev external
+```
+
+Svaar's packages share one PostgreSQL database. Observed events and replay results are stored separately and never mixed.
 
 ### Package ownership
 
