@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "svaar"
+version = "0.1.0"
+description = "Independent voice incident resolution application"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.34,<1",
+  "pydantic>=2.10,<3",
+  "pydantic-settings>=2.7,<3",
+  "sqlalchemy>=2.0,<2.1",
+  "psycopg[binary]>=3.2,<4",
+  "alembic>=1.14,<2",
+  "httpx>=0.28,<1",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3,<10", "ruff>=0.11,<1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/svaar"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = ["postgres: requires SVAAR_TEST_DATABASE_URL pointing to a dedicated PostgreSQL database"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["plans"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

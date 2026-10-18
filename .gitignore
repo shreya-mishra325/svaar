@@ -1,0 +1,28 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+# Python and build output
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+# Local editor and temporary output
+.idea/
+.vscode/
+*.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
