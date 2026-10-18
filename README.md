@@ -1,3 +1,5 @@
+![Svaar](https://github.com/RohanOnKeys/cerebro/blob/main/assets/Abstract%20Color%20Composition%20Photo%20on%20Lummi.jpg)
+
 # Svaar
 
 Svaar is a voice-enabled agent for engineering incidents. It lives in team chat, watches CI, rebuilds what happened from recorded events, checks status claims against evidence, calls engineers by phone to verify them, and negotiates conflicting constraints into a plan that deterministic code has validated.
