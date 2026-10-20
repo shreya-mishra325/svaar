@@ -2,6 +2,7 @@
 
 from unittest.mock import Mock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
@@ -59,3 +60,39 @@ def test_production_disables_documentation(settings: Settings) -> None:
     with TestClient(create_app(production)) as client:
         assert client.get("/docs").status_code == 404
         assert client.get("/openapi.json").status_code == 404
+
+
+@pytest.mark.parametrize("close_fails", [False, True])
+def test_configured_agent_lifecycle_does_not_call_provider(
+    settings: Settings, close_fails: bool
+) -> None:
+    configured = Settings(
+        _env_file=None,
+        database_url=settings.database_url,
+        llm_base_url="https://example.invalid/v1",
+        llm_api_key="example-only",
+        llm_model="test-model",
+    )
+    model = Mock()
+    if close_fails:
+        model.close.side_effect = RuntimeError("close failed")
+    app = create_app(configured)
+
+    def lifecycle() -> None:
+        with TestClient(app):
+            assert app.state.agent_loop is not None
+            app.state.engine.dispose = Mock(wraps=app.state.engine.dispose)
+            disposals.append(app.state.engine.dispose)
+            model.complete.assert_not_called()
+
+    disposals = []
+    with patch("svaar.app.HttpChatModel.from_settings", return_value=model):
+        if close_fails:
+            with pytest.raises(RuntimeError, match="close failed"):
+                lifecycle()
+        else:
+            lifecycle()
+    model.close.assert_called_once_with()
+    disposals[0].assert_called_once_with()
+    assert not hasattr(app.state, "agent_loop")
+    assert not hasattr(app.state, "engine")
