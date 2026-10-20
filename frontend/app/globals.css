@@ -1,0 +1,42 @@
+:root {
+  --ink: #121212;
+  --ink-soft: #1c1c1c;
+  --icon: #121212;
+  --gutter: clamp(16px, 5vw, 76px);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  color: var(--ink);
+  background: #e9d6cc;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+}
+
+/* The wave carries in a copy of the hero; the real one appears when it lands. */
+html[data-intro="intro"] main > section:first-of-type,
+html[data-intro="reveal"] main > section:first-of-type {
+  visibility: hidden;
+}
+
+h1,
+h3,
+h4 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}

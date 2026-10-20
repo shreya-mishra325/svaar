@@ -1,0 +1,70 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  cursor: pointer;
+}
+
+.cover {
+  position: absolute;
+  inset: 0;
+}
+
+.background {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: -1;
+}
+
+@media (orientation: portrait) {
+  .background {
+    top: 50%;
+    left: 50%;
+    width: 100vh;
+    height: 100vw;
+    transform: translate(-50%, -50%) rotate(90deg);
+  }
+}
+
+.water {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+/* The landing page riding the wave: clipped to the crest, rippled by the water. */
+.carry {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  clip-path: inset(100% 0 0 0);
+}
+
+.carryPage {
+  transform: translateY(115vh);
+  filter: url(#carry-ripple);
+  will-change: transform;
+}
+
+/* Reduced motion or no WebGL: a plain fade. */
+.fading {
+  opacity: 0;
+  transition: opacity 600ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .background {
+    content: url("/background-still.jpg");
+  }
+}
