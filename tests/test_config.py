@@ -41,6 +41,28 @@ def test_invalid_settings_are_rejected(overrides: dict[str, object]) -> None:
         Settings(_env_file=None, database_url=URL, **overrides)
 
 
+def test_feature_credentials_are_unset_by_default() -> None:
+    settings = Settings(_env_file=None, database_url=URL)
+    assert settings.operator_token is None
+    assert settings.allow_same_channel_confirmation is False
+
+
+def test_empty_operator_token_is_unset() -> None:
+    assert Settings(_env_file=None, database_url=URL, operator_token=" ").operator_token is None
+
+
+def test_short_operator_token_is_rejected() -> None:
+    with pytest.raises(ValidationError) as error:
+        Settings(_env_file=None, database_url=URL, operator_token="short-secret")
+    assert "short-secret" not in str(error.value)
+
+
+@pytest.mark.parametrize("low, high", [(0.9, 0.5), (0.7, 0.7), (float("nan"), 0.9)])
+def test_policy_thresholds_require_low_below_high(low: float, high: float) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, database_url=URL, policy_low=low, policy_high=high)
+
+
 def test_validation_error_string_hides_input() -> None:
     with pytest.raises(ValidationError) as error:
         Settings(_env_file=None, database_url="https://user:example_password@host/db")

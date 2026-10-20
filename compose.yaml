@@ -3,7 +3,7 @@ name: svaar
 x-application: &application
   image: svaar:local
   build: .
-  environment:
+  environment: &infrastructure-environment
     SVAAR_ENVIRONMENT: ${SVAAR_ENVIRONMENT:-development}
     SVAAR_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-svaar}:${POSTGRES_PASSWORD:-svaar_dev_only}@db:5432/${POSTGRES_DB:-svaar}
     SVAAR_LOG_LEVEL: ${SVAAR_LOG_LEVEL:-INFO}
@@ -37,6 +37,10 @@ services:
 
   app:
     <<: *application
+    environment:
+      <<: *infrastructure-environment
+      # Operator routes only; empty means operator routes answer 503.
+      SVAAR_OPERATOR_TOKEN: ${SVAAR_OPERATOR_TOKEN:-}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
