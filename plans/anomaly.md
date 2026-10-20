@@ -49,6 +49,9 @@ do not silently delete them. Do not paste secrets or sensitive payloads.
   webhook authentication is implemented.
 - Next action: Introduce validation and process-specific credential wiring with
   each owning feature. Keep credentials server-side and without usable defaults.
+- Update 2026-10-20: `SVAAR_OPERATOR_TOKEN` (validated, passed to `app` only),
+  invite, confirmation and policy settings are now active. Provider credentials
+  remain comments, so this entry stays open.
 - Owner: Unassigned.
 
 ## A-004: Upstream test-client deprecation warning
@@ -89,6 +92,75 @@ do not silently delete them. Do not paste secrets or sensitive payloads.
 - Next action: Define execution/unknown-outcome states, provider idempotency where
   supported, and reconciliation or human review. Never retry a risky action blindly.
   Test concurrency and crash boundaries with the executor implementation.
+- Update 2026-10-20: The dispatcher commits a `started` execution row keyed by the
+  confirmation ID before running a tier-2 handler. Handlers raise
+  `ProviderOutcomeUnknownError` to record `outcome_unknown`; a row left in `started`
+  after a crash has the same meaning. Neither is retried. Concurrent local execution
+  is tested. Still open: provider idempotency keys, reconciliation and a human
+  review path for unknown outcomes; crash-boundary tests need a real provider adapter.
+- Owner: Unassigned.
+
+## A-007: Phase 1 implementation choices needing team review
+
+- Status: Open; design decisions made during implementation, not observed defects.
+- Evidence: Phase 1 local work on 2026-10-20; see checkpoints.md Phase 1.
+- Choices:
+  1. Added operator route `POST /api/v1/orgs`. PLAN.md lists only `POST /invites`,
+     but an invite needs an existing organization and orgs must not be created from chat.
+  2. The unique execution key lives on `tool_executions.execution_key` (set to the
+     confirmation ID) rather than on `confirmations`, so approvals does not depend on
+     actions. `confirmations` also stores validated `arguments` (JSONB), which the
+     plan's column list omits but deferred execution requires.
+  3. Same-channel confirmation is refused unless
+     `SVAAR_ALLOW_SAME_CHANNEL_CONFIRMATION` is set, even when the owner has only one
+     verified channel. PLAN.md says "when they have two"; the stricter reading was
+     chosen because nothing else would block a single-channel self-confirmation.
+  4. Nonces are six digits, compared after keeping digits only, so spoken digits
+     transcribed as numerals match. Number words ("four eight") do not; whether STT
+     output needs word-to-digit conversion depends on Bolna's transcripts (A-002).
+  5. Policy thresholds default to 0.85 and 0.55 as placeholders until tuned.
+- Next action: Team confirms or adjusts each choice.
+- Owner: Unassigned.
+
+## A-008: Chat LLM selection and provider key setup
+
+- Status: Open; provider selected, smoke check not yet run (no keys configured as of
+  2026-10-20).
+- Decision (2026-10-20): Chat and voice use one OpenAI-compatible adapter.
+  - Primary: Groq, `SVAAR_LLM_BASE_URL=https://api.groq.com/openai/v1`,
+    `SVAAR_LLM_MODEL=llama-3.3-70b-versatile`. Chosen for low latency on the
+    8 second voice turn budget and a free tier without a card.
+  - Backup: Google Gemini through its OpenAI-compatible endpoint
+    `https://generativelanguage.googleapis.com/v1beta/openai/`, a Flash model.
+  - Optional for comparison: OpenRouter free models, Cerebras.
+  - Jev is not a chat model and stays separate (A-002); decisions fall back safely
+    while it is unconfigured.
+- Free-tier limits are from secondary 2026 comparison articles, not provider pages:
+  Groq roughly 30 requests per minute on 70B models; Gemini roughly 1,500 requests
+  per day on Flash. Free tiers may use submitted data for training, so send only
+  demo data. Native tool calling on these models is unverified until the smoke check.
+- How to generate keys (each developer uses a personal account; never share or
+  commit keys, and never paste them into chat or documents):
+  1. Groq: sign in at <https://console.groq.com>, open API Keys, create a key, and set
+     `SVAAR_LLM_API_KEY` in the local `.env`.
+  2. Gemini: create a key at <https://aistudio.google.com/apikey> and keep it in the
+     local `.env` for backup testing.
+  3. Telegram bot (needed for either chat route): message @BotFather, send `/newbot`,
+     choose a name and a username ending in `bot`, and set `SVAAR_TELEGRAM_BOT_TOKEN`.
+  4. Caspian (optional until A-002 is answered): create a key at
+     <https://dashboard.trycaspianai.com>, or run `caspian init project` outside the
+     repository and copy `CASPIAN_API_KEY` to `SVAAR_CASPIAN_API_KEY`. Billing is
+     prepaid credit; no free tier is documented.
+- Smoke check to run once keys exist: key accepted, configured model listed, three
+  native tool-call requests return the expected tool and arguments, median latency
+  recorded in seconds (non-streaming). Record dated, redacted results here.
+- Caspian documentation notes (read 2026-10-20, not a live check): hosted mode polls
+  `GET /v1/events`, so no public route is needed; messages carry a stable `id`,
+  `conversation_id`, `channel` and `sender {address, name}`. The documents do not say
+  whether `sender.address` is verified by the platform, so Caspian senders are treated
+  as unauthenticated until Caspian confirms it (A-002). Telegram remains the fallback.
+- Next action: Configure keys, run the smoke check, record results, then lock the
+  chat transport decision for Phase 2.
 - Owner: Unassigned.
 
 ## Resolved entries
