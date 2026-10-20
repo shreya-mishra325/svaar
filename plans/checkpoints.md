@@ -20,8 +20,10 @@ reading order in agent tasks; these documents are not automatically loaded.
 - At phase closure record date, owner if known, changed files, executed checks and
   results, integration status and remaining limitations under that phase.
 
-Current position: Phase 0 is complete for local infrastructure. Phase 1 is the
-next uncompleted phase. No provider verification or business feature is claimed.
+Current position: Phase 0 is complete for local infrastructure. Phase 1 is in
+progress: its local identity, action gate, confirmation and decision-policy work is
+verified; provider contract checks and the Jev adapter remain. No provider
+verification or end-to-end business feature is claimed.
 
 ## Phase 0: Engineering foundation
 
@@ -58,21 +60,47 @@ Target: Oct 18 to 19. Prerequisite: Phase 0.
 - [ ] Verify Bolna account readiness, turn mode, call-reference delivery and one
   explicitly authorized outbound test call.
 - [ ] Select Jev gateway/model and verify its actual request/response contract.
-- [ ] Implement scoped identities, expiring single-use invites and trusted bindings.
-- [ ] Implement the actions registry/dispatcher, argument validation, role/org/channel
+- [x] Implement scoped identities, expiring single-use invites and trusted bindings.
+- [x] Implement the actions registry/dispatcher, argument validation, role/org/channel
   checks, configured risk tiers and execution audit.
-- [ ] Implement owner-bound atomic confirmations, expiry, execution authorization
+- [x] Implement owner-bound atomic confirmations, expiry, execution authorization
   and an explicit uncertain-provider-outcome policy.
 - [ ] Implement typed Jev adapter, confidence policy, fallback and decision audit.
-- [ ] Define P0 intent/usability schemas and deterministic mission-guard interface.
+  Policy, per-question fallback and audit are done; the gateway adapter is blocked
+  on the unverified Jev contract (A-002).
+- [x] Define P0 intent/usability schemas and deterministic mission-guard interface.
 - [ ] Introduce validated feature settings with process-specific credential wiring.
+  Operator, invite, confirmation and policy settings are active; provider settings
+  arrive with their adapters (A-003).
 
 Exit check: unconfirmed tier-2 tools never execute; concurrent confirmations cannot
 create duplicate local execution attempts; authorization is rechecked; invalid or
 unavailable Jev responses fall back safely; mission limits are enforced. Required
 quality checks pass. Contract blockers: A-002; execution ambiguity: A-006.
 
-Evidence: Pending.
+Evidence recorded on 2026-10-20 (partial; phase not complete). Owner: not assigned
+in this document. Local checks only, not remote CI or provider verification:
+
+- `ruff format --check` and `ruff check` passed; `alembic upgrade head`,
+  `alembic check`, downgrade to 0001 and re-upgrade passed against PostgreSQL 16.
+- `pytest`: 112 passed against real PostgreSQL (29 existing, 83 new), with the
+  A-004 warning still present.
+- Exit-check items covered by tests: tier-2 tools create a confirmation and never
+  run unconfirmed; four concurrent confirmations execute once; role is rechecked at
+  execution; wrong, expired, same-channel, other-owner and "yes" confirmations are
+  refused; wrong codes lock at the limit; invalid, missing, duplicate and
+  unavailable decision answers fall back per question and are audited; voice
+  mission allowlists are enforced.
+- Container smoke: `docker compose up --build app` migrated to 0002; operator
+  routes created an org and invite with the token and returned 401 without it.
+- Changed files: src/svaar/config.py, src/svaar/api/{auth,router}.py,
+  src/svaar/identity/, src/svaar/actions/, src/svaar/approvals/,
+  src/svaar/decisions/, migrations/env.py, migrations/versions/0002_phase1_foundation.py,
+  tests/, compose.yaml, .env.example, README.md.
+
+Remaining: provider contract checks (A-002), Jev gateway adapter, provider settings,
+phone binding challenge (Phase 3), reconciliation for unknown outcomes (A-006), and
+team review of the design choices in A-007.
 
 ## Phase 2: Shared chat and voice agent runtime
 

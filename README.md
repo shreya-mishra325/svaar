@@ -13,9 +13,13 @@ Svaar is a voice-enabled agent for engineering incidents. It lives in team chat,
 Svaar has one agent. Chat messages and phone calls reach the same tool loop, the same tool registry and the same approval gate.
 
 This describes the target architecture. The current code implements shared infrastructure,
-health probes, package boundaries, and the voice turn-runner protocol only. The agent loop,
-transports, identity, dispatcher, approvals, provider integrations, and domain features remain
-to be implemented. Cerebro is an architectural reference, not a deployed dependency.
+health probes, package boundaries, the voice turn-runner protocol, and the Phase 1 local
+foundation: identity with single-use invites, the `actions` registry and dispatcher with
+mission guard and execution audit, owner-bound confirmations, and P0 decision schemas with
+confidence policy, heuristic fallback and decision audit. The agent loop, transports, Jev
+gateway adapter, provider integrations and incident features remain to be implemented, and no
+provider contract has been verified. Cerebro is an architectural reference, not a deployed
+dependency.
 
 ## How it works
 
@@ -161,20 +165,29 @@ Settings read environment variables before optional `.env` values. Invalid setti
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Local Compose initialization only |
 | `SVAAR_TEST_DATABASE_URL` | Optional dedicated database for PostgreSQL tests |
 
-### Features
+### Active feature settings
+
+| Variable | Default / requirement |
+| --- | --- |
+| `SVAAR_OPERATOR_TOKEN` | Unset; at least 32 characters. Unset makes operator routes return 503. Compose passes it to `app` only |
+| `SVAAR_INVITE_TTL_HOURS` | `72`, from 1 to 720 |
+| `SVAAR_CONFIRMATION_TTL_SECONDS` | `600`, from 60 to 3600 |
+| `SVAAR_CONFIRMATION_MAX_ATTEMPTS` | `5`; wrong codes beyond this lock the owner's pending confirmations |
+| `SVAAR_ALLOW_SAME_CHANNEL_CONFIRMATION` | `false`; enable only for a demo without a second verified channel |
+| `SVAAR_POLICY_HIGH`, `SVAAR_POLICY_LOW` | `0.85` and `0.55`; low must be below high. Placeholders until tuned on labelled transcripts |
+
+### Planned feature settings
 
 These variables are introduced with the feature that reads them and must be validated at
 application construction when that feature is enabled. They are listed as commented examples
-in `.env.example`, not active fields in the infrastructure Settings class. Compose currently
-passes infrastructure settings only; wire each feature's credentials only to the processes
-that need them as the feature is implemented.
+in `.env.example`, not active fields in the Settings class. Wire each feature's credentials
+only to the processes that need them as the feature is implemented.
 
 | Area | Variables |
 | --- | --- |
-| Operator | `SVAAR_OPERATOR_TOKEN` |
 | Chat LLM | `SVAAR_LLM_BASE_URL`, `SVAAR_LLM_API_KEY`, `SVAAR_LLM_MODEL` |
 | Channels | `SVAAR_CHANNEL_TRANSPORT` (`caspian` or `telegram`), `SVAAR_CASPIAN_API_KEY`, `SVAAR_CASPIAN_BASE_URL`, `SVAAR_CASPIAN_WEBHOOK_SECRET`, `SVAAR_TELEGRAM_BOT_TOKEN` |
-| Jev | `SVAAR_JEV_BASE_URL`, `SVAAR_JEV_API_KEY`, `SVAAR_JEV_MODEL`, `SVAAR_POLICY_HIGH`, `SVAAR_POLICY_LOW` |
+| Jev | `SVAAR_JEV_BASE_URL`, `SVAAR_JEV_API_KEY`, `SVAAR_JEV_MODEL` |
 | Bolna | `SVAAR_BOLNA_API_KEY`, `SVAAR_BOLNA_AGENT_ID`, `SVAAR_VOICE_TURN_MODE` (`llm_endpoint` or `function`), `SVAAR_VOICE_TURN_TOKEN`, `SVAAR_VOICE_STATUS_SECRET` |
 | GitHub | `SVAAR_GITHUB_APP_ID`, `SVAAR_GITHUB_PRIVATE_KEY_B64`, `SVAAR_GITHUB_INSTALLATION_ID`, `SVAAR_GITHUB_WEBHOOK_SECRET` |
 | Jira | `SVAAR_JIRA_BASE_URL`, `SVAAR_JIRA_EMAIL`, `SVAAR_JIRA_API_TOKEN`, `SVAAR_JIRA_DEFAULT_PROJECT_KEY` |
@@ -183,9 +196,10 @@ Keep real credentials out of source control and logs. Production must inject its
 
 ## Security model
 
-The following controls are requirements for feature implementation. Authentication, identity,
-dispatcher enforcement, confirmation, and external webhook routes do not exist yet; configuring
-a token alone does not enable or protect a feature.
+The following controls are requirements for feature implementation. Operator bearer
+authentication, invite-based identity, dispatcher enforcement and confirmations exist and are
+tested locally. Voice, channel and webhook authentication and the transports that would invoke
+the dispatcher do not exist yet; configuring a token alone does not enable or protect a feature.
 
 - **Separate credentials.** The operator token only opens operator routes. Voice turns, the voice status webhook, the GitHub webhook and any channel webhook each have their own credential. GitHub deliveries are verified by HMAC and deduplicated by delivery ID. The Bolna status webhook accepts only Bolna's addresses plus a shared secret.
 - **Verified identity.** People join with single-use, expiring invites. No organization is created from chat. Ordinary missions call only verified phones. The `phone_verify` mission is the narrow exception: it may dial only the pending number bound to that principal's verification challenge and may only verify that challenge. A caller cannot establish identity by asserting it during a call.
