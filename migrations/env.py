@@ -2,11 +2,15 @@
 
 from alembic import context
 
+import svaar.actions.models  # noqa: F401
+import svaar.approvals.models  # noqa: F401
+import svaar.decisions.models  # noqa: F401
+import svaar.identity.models  # noqa: F401
 from svaar.config import Settings
 from svaar.db import Base, create_database_engine
 from svaar.logging import configure_logging
 
-# Import future feature model modules here so autogenerate sees their tables.
+# Import feature model modules above so autogenerate sees their tables.
 target_metadata = Base.metadata
 
 

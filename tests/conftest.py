@@ -4,11 +4,16 @@ import os
 from collections.abc import Iterator
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import Engine, text
+from sqlalchemy.orm import Session, sessionmaker
 
 from svaar.app import create_app
 from svaar.config import Settings
+from svaar.db import create_database_engine
 
 
 @pytest.fixture(autouse=True)
@@ -41,3 +46,51 @@ def client(app: FastAPI) -> Iterator[TestClient]:
     """Run the full startup/shutdown lifecycle for each client."""
     with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
+
+
+DOMAIN_TABLES = (
+    "invites",
+    "channel_bindings",
+    "principals",
+    "orgs",
+    "confirmations",
+    "tool_executions",
+    "decisions",
+)
+
+
+@pytest.fixture(scope="session")
+def database_url() -> str:
+    """Return the dedicated test database URL, migrated to head, or skip."""
+    url = os.environ.get("SVAAR_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("Set SVAAR_TEST_DATABASE_URL to a dedicated PostgreSQL test database")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("SVAAR_DATABASE_URL", url)
+        command.upgrade(Config("alembic.ini"), "head")
+    return url
+
+
+@pytest.fixture(scope="session")
+def db_engine(database_url: str) -> Iterator[Engine]:
+    """Share one engine across database tests."""
+    engine = create_database_engine(
+        Settings(_env_file=None, database_url=database_url, database_timeout_seconds=10)
+    )
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture
+def session_factory(db_engine: Engine) -> Iterator[sessionmaker[Session]]:
+    """Provide sessions that commit for real; domain tables are emptied afterwards."""
+    yield sessionmaker(bind=db_engine, expire_on_commit=False)
+    with db_engine.begin() as connection:
+        connection.execute(text(f"TRUNCATE {', '.join(DOMAIN_TABLES)} CASCADE"))
+
+
+@pytest.fixture
+def db_session(session_factory: sessionmaker[Session]) -> Iterator[Session]:
+    """Yield one session against the migrated test database."""
+    with session_factory() as session:
+        yield session
