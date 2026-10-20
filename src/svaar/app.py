@@ -8,11 +8,16 @@ from fastapi import FastAPI
 from sqlalchemy.orm import sessionmaker
 from starlette.concurrency import run_in_threadpool
 
+from svaar.actions.catalog import build_registry
+from svaar.actions.dispatcher import ApprovalPolicy, Dispatcher
+from svaar.agent.llm import HttpChatModel
+from svaar.agent.loop import AgentLoop
 from svaar.api.errors import ErrorResponse, install_error_handlers
 from svaar.api.health import router as health_router
 from svaar.api.router import api_router
 from svaar.config import Settings
 from svaar.db import create_database_engine
+from svaar.decisions.service import DecisionService
 from svaar.logging import configure_logging
 
 logger = logging.getLogger(__name__)
@@ -28,14 +33,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = create_database_engine(settings)
         app.state.engine = engine
         app.state.session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+        model = None
+        loop = None
         logger.info("application_started")
         try:
+            if settings.llm_model is not None:
+                model = HttpChatModel.from_settings(settings)
+                dispatcher = Dispatcher(build_registry(), ApprovalPolicy.from_settings(settings))
+                loop = AgentLoop(model, dispatcher, DecisionService.from_settings(None, settings))
+            app.state.agent_loop = loop
             yield
         finally:
-            await run_in_threadpool(engine.dispose)
-            del app.state.session_factory
-            del app.state.engine
-            logger.info("application_stopped")
+            try:
+                if loop is not None:
+                    loop.close()
+                if model is not None:
+                    await run_in_threadpool(model.close)
+            finally:
+                if hasattr(app.state, "agent_loop"):
+                    del app.state.agent_loop
+                await run_in_threadpool(engine.dispose)
+                del app.state.session_factory
+                del app.state.engine
+                logger.info("application_stopped")
 
     app = FastAPI(
         title="Svaar",

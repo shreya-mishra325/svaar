@@ -9,6 +9,17 @@ x-application: &application
     SVAAR_LOG_LEVEL: ${SVAAR_LOG_LEVEL:-INFO}
     SVAAR_DATABASE_TIMEOUT_SECONDS: ${SVAAR_DATABASE_TIMEOUT_SECONDS:-3}
 
+x-agent-environment: &agent-environment
+  <<: *infrastructure-environment
+  SVAAR_CONFIRMATION_TTL_SECONDS: ${SVAAR_CONFIRMATION_TTL_SECONDS:-600}
+  SVAAR_CONFIRMATION_MAX_ATTEMPTS: ${SVAAR_CONFIRMATION_MAX_ATTEMPTS:-5}
+  SVAAR_ALLOW_SAME_CHANNEL_CONFIRMATION: ${SVAAR_ALLOW_SAME_CHANNEL_CONFIRMATION:-false}
+  SVAAR_POLICY_HIGH: ${SVAAR_POLICY_HIGH:-0.85}
+  SVAAR_POLICY_LOW: ${SVAAR_POLICY_LOW:-0.55}
+  SVAAR_LLM_BASE_URL: ${SVAAR_LLM_BASE_URL:-}
+  SVAAR_LLM_API_KEY: ${SVAAR_LLM_API_KEY:-}
+  SVAAR_LLM_MODEL: ${SVAAR_LLM_MODEL:-}
+
 services:
   db:
     image: postgres:16-bookworm
@@ -38,9 +49,10 @@ services:
   app:
     <<: *application
     environment:
-      <<: *infrastructure-environment
+      <<: *agent-environment
       # Operator routes only; empty means operator routes answer 503.
       SVAAR_OPERATOR_TOKEN: ${SVAAR_OPERATOR_TOKEN:-}
+      SVAAR_INVITE_TTL_HOURS: ${SVAAR_INVITE_TTL_HOURS:-72}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -51,6 +63,7 @@ services:
   # without a listener; --check validates infrastructure without starting one.
   gateway:
     <<: *application
+    environment: *agent-environment
     profiles: ["gateway"]
     init: true
     entrypoint: ["python", "-m", "svaar.gateway"]

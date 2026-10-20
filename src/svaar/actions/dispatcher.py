@@ -14,6 +14,7 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import timedelta
+from time import monotonic
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
@@ -125,7 +126,7 @@ class Dispatcher:
         session: Session,
         context: ToolContext,
         name: str,
-        raw_arguments: Mapping[str, Any] | None,
+        raw_arguments: object,
     ) -> ToolResult:
         """Run one tool call through every check and record the attempt."""
         spec = self.registry.get(name)
@@ -140,7 +141,9 @@ class Dispatcher:
         assert principal is not None
 
         try:
-            arguments = spec.arguments.model_validate(raw_arguments or {})
+            arguments = spec.arguments.model_validate(
+                {} if raw_arguments is None else raw_arguments
+            )
         except ValidationError as exc:
             self._record(session, context, name, ToolStatus.INVALID_ARGUMENTS)
             details = [
@@ -246,6 +249,7 @@ class Dispatcher:
             channel=Channel(confirmation.requested_channel),
             mission=None,
             correlation_id=context.correlation_id,
+            deadline=context.deadline,
         )
         principal = get_principal(session, confirmation.org_id, confirmation.principal_id)
         arguments: BaseModel | None = None
@@ -357,6 +361,8 @@ def _denial(spec: ToolSpec, context: ToolContext, principal: Principal | None) -
 
 def _run_handler(spec: ToolSpec, call: ToolCall) -> tuple[ToolStatus, dict[str, Any], str | None]:
     """Run a handler inside a savepoint so a failure leaves no partial writes."""
+    if call.context.deadline is not None and monotonic() >= call.context.deadline:
+        return ToolStatus.FAILED, {"error": "deadline_exceeded"}, "deadline_exceeded"
     try:
         with call.session.begin_nested():
             output = dict(spec.handler(call))

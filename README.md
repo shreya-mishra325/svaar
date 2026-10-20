@@ -16,10 +16,12 @@ This describes the target architecture. The current code implements shared infra
 health probes, package boundaries, the voice turn-runner protocol, and the Phase 1 local
 foundation: identity with single-use invites, the `actions` registry and dispatcher with
 mission guard and execution audit, owner-bound confirmations, and P0 decision schemas with
-confidence policy, heuristic fallback and decision audit. The agent loop, transports, Jev
-gateway adapter, provider integrations and incident features remain to be implemented, and no
-provider contract has been verified. Cerebro is an architectural reference, not a deployed
-dependency.
+confidence policy, heuristic fallback and decision audit. Phase 2 now includes the shared
+transport-independent agent core, an OpenAI-compatible HTTP adapter, bounded chat/voice
+profiles, registry-generated policy, and audited voice usability/intent gates. Transports,
+durable conversation/delivery storage, trusted call resolution, the Jev gateway adapter and
+incident features remain unfinished. Model contracts have offline tests; no live model or
+channel smoke check is claimed. Cerebro is an architectural reference, not a deployed dependency.
 
 ## How it works
 
@@ -175,6 +177,70 @@ Settings read environment variables before optional `.env` values. Invalid setti
 | `SVAAR_CONFIRMATION_MAX_ATTEMPTS` | `5`; wrong codes beyond this lock the owner's pending confirmations |
 | `SVAAR_ALLOW_SAME_CHANNEL_CONFIRMATION` | `false`; enable only for a demo without a second verified channel |
 | `SVAAR_POLICY_HIGH`, `SVAAR_POLICY_LOW` | `0.85` and `0.55`; low must be below high. Placeholders until tuned on labelled transcripts |
+| `SVAAR_LLM_BASE_URL`, `SVAAR_LLM_API_KEY`, `SVAAR_LLM_MODEL` | Set all three or leave all unset. Base URL must use HTTP(S) without credentials/query/fragment; the API key is secret |
+
+When configured, application lifespan creates `app.state.agent_loop` without making a provider
+request and closes inference/HTTP resources on shutdown. When unset, that state is `None`.
+Compose passes model and shared decision/confirmation policy settings to app/gateway,
+not migrations. The operator token and invite TTL remain app-only. No public chat/voice route
+uses the loop yet. Jev remains unconfigured, so the composed voice gates conservatively ask
+for clarification rather than accepting heuristic confidence as permission.
+
+Jev development currently uses mocked HTTP responses. The standalone
+`decisions.jev.VercelJevEngine` implements Vercel's TypeSafe-compatible HTTP shape
+with explicit versioned model IDs, strict per-answer validation, bounded network
+timeouts and no retries or model fallbacks. It is not connected to application
+startup or environment settings; adding a key does not activate it. No Node SDK
+or Vercel CLI setup is needed for this Python adapter.
+
+Run its offline tests without a provider key:
+
+```sh
+uv run --locked pytest tests/test_jev.py -q
+```
+
+The database audit scenarios require `SVAAR_TEST_DATABASE_URL`; they skip when it
+is unset. All provider responses in these tests are synthetic, not recorded Jev
+outputs. Mocked success does not verify model accuracy, live access or latency.
+Vercel was selected by the user, but live Jev testing is deferred because the
+catalog shown by the user excludes Jev from free Gateway credits. This does not
+change the current conservative fallback in the running application.
+Contract references: [Vercel TypeSafe API](https://vercel.com/docs/ai-gateway/sdks-and-apis/typesafe)
+and [TypeSafe Choice](https://docs.typesafe.ai/primitives/choice).
+
+The HTTP contract follows the provider's documented
+[OpenAI compatibility](https://console.groq.com/docs/openai) and
+[tool-use format](https://console.groq.com/docs/tool-use/overview). Model-specific behavior
+must still be checked against the selected account. After setting the three model variables,
+an operator can manually run this probe; it sends three real model requests and executes no tools:
+
+```sh
+uv run --locked python -m svaar.agent.smoke
+```
+
+It requires native tool calls with exact arguments and prints only success/latency metadata
+or a sanitized failure. The measured median is full non-streaming response time in seconds,
+not first-token latency. Do not treat JSON-mode fallback as proof of native tool support.
+
+The selected Groq model is `openai/gpt-oss-20b`, using
+`https://api.groq.com/openai/v1`. On 2026-10-20 the user reported a successful live
+probe: three native tool-call requests, median full-response time 0.516 seconds.
+This verifies that probe only, not full agent/voice latency or all tool schemas.
+See [Groq's model documentation](https://console.groq.com/docs/model/openai/gpt-oss-20b).
+Model selection stays in local `SVAAR_LLM_MODEL`; no provider model is hardcoded.
+
+`AgentLoop.run` accepts a server-resolved `ToolContext`, a caller-owned session and already
+scoped history. It never invokes handlers directly. The caller must persist/dedupe the turn
+and enqueue replies, confirmation tickets and fallback notifications through the future outbox.
+Tickets must never enter model history, a spoken reply or logs. The loop does not implement
+the call-ID `TurnRunner` contract yet because trusted call resolution belongs to the voice phase.
+
+Model waits are bounded by one absolute turn deadline; late inference can never execute tools,
+and abandoned requests continue occupying bounded inference capacity until they finish.
+Tool handlers remain synchronous, outside those workers. They receive the remaining absolute
+monotonic budget as `call.context.deadline` and must use bounded database/provider timeouts.
+A running external effect cannot safely be cancelled. End-to-end tool latency and unknown
+outcomes still need adapter-specific validation; see plans/anomaly.md A-009.
 
 ### Planned feature settings
 
@@ -185,7 +251,6 @@ only to the processes that need them as the feature is implemented.
 
 | Area | Variables |
 | --- | --- |
-| Chat LLM | `SVAAR_LLM_BASE_URL`, `SVAAR_LLM_API_KEY`, `SVAAR_LLM_MODEL` |
 | Channels | `SVAAR_CHANNEL_TRANSPORT` (`caspian` or `telegram`), `SVAAR_CASPIAN_API_KEY`, `SVAAR_CASPIAN_BASE_URL`, `SVAAR_CASPIAN_WEBHOOK_SECRET`, `SVAAR_TELEGRAM_BOT_TOKEN` |
 | Jev | `SVAAR_JEV_BASE_URL`, `SVAAR_JEV_API_KEY`, `SVAAR_JEV_MODEL` |
 | Bolna | `SVAAR_BOLNA_API_KEY`, `SVAAR_BOLNA_AGENT_ID`, `SVAAR_VOICE_TURN_MODE` (`llm_endpoint` or `function`), `SVAAR_VOICE_TURN_TOKEN`, `SVAAR_VOICE_STATUS_SECRET` |

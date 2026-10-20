@@ -3,6 +3,7 @@
 import math
 from typing import Literal, Self
 
+import httpx
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
@@ -31,6 +32,11 @@ class Settings(BaseSettings):
     # Operator routes only; voice, channel and webhook routes use separate credentials.
     operator_token: SecretStr | None = None
 
+    # One optional model configuration serves chat and voice. All three or none.
+    llm_base_url: str | None = None
+    llm_api_key: SecretStr | None = None
+    llm_model: str | None = None
+
     # Identity and approvals.
     invite_ttl_hours: int = Field(default=72, ge=1, le=720)
     confirmation_ttl_seconds: int = Field(default=600, ge=60, le=3600)
@@ -55,7 +61,7 @@ class Settings(BaseSettings):
             raise ValueError("Database URL requires username, password, host, and database")
         return value
 
-    @field_validator("operator_token", mode="before")
+    @field_validator("operator_token", "llm_api_key", "llm_base_url", "llm_model", mode="before")
     @classmethod
     def empty_token_is_unset(cls, value: object) -> object:
         """Treat an empty variable, as copied from .env.example, as not configured."""
@@ -70,6 +76,38 @@ class Settings(BaseSettings):
         if value is not None and len(value.get_secret_value()) < MIN_TOKEN_LENGTH:
             raise ValueError(f"Tokens must be at least {MIN_TOKEN_LENGTH} characters")
         return value
+
+    @field_validator("llm_base_url")
+    @classmethod
+    def validate_llm_url(cls, value: str | None) -> str | None:
+        """Require an HTTP(S) endpoint without embedded credentials or query secrets."""
+        if value is None:
+            return None
+        try:
+            url = httpx.URL(value)
+        except httpx.InvalidURL:
+            raise ValueError("Invalid LLM base URL") from None
+        if (
+            url.scheme not in {"http", "https"}
+            or not url.host
+            or url.userinfo
+            or url.query
+            or url.fragment
+        ):
+            raise ValueError(
+                "LLM URL requires HTTP(S), a host, and no credentials, query or fragment"
+            )
+        return value.rstrip("/")
+
+    @model_validator(mode="after")
+    def validate_llm_configuration(self) -> Self:
+        """A partial model configuration must fail before application startup."""
+        configured = (self.llm_base_url, self.llm_api_key, self.llm_model)
+        if any(configured) and not all(configured):
+            raise ValueError(
+                "Set SVAAR_LLM_BASE_URL, SVAAR_LLM_API_KEY and SVAAR_LLM_MODEL together"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_policy_thresholds(self) -> Self:

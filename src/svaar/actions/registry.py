@@ -32,6 +32,8 @@ class ToolContext:
         channel: Surface the request arrived on.
         mission: Active call mission; required on voice, absent on chat.
         correlation_id: Identifier tying audit rows to a turn or request.
+        deadline: Optional absolute monotonic deadline; provider handlers must bound
+            their timeouts to its remaining budget. Never persist this clock value.
     """
 
     org_id: uuid.UUID
@@ -39,6 +41,7 @@ class ToolContext:
     channel: Channel
     mission: Mission | None
     correlation_id: str
+    deadline: float | None = None
 
 
 @dataclass(frozen=True)
