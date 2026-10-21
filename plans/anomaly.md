@@ -1,6 +1,6 @@
 # Svaar anomalies and open integration questions
 
-Last reviewed: 2026-10-18 (Asia/Calcutta).
+Last reviewed: 2026-10-21 (Asia/Calcutta).
 
 ## How to use this log
 
@@ -32,12 +32,24 @@ do not silently delete them. Do not paste secrets or sensitive payloads.
 - Impact: Do not assume Caspian message IDs, sender trust, transport mode, delivery
   receipts or available channels. Do not assume Bolna's custom LLM endpoint,
   per-call reference delivery or latency units. Do not assume a common Jev payload,
-  batching contract or partial-failure schema. The chat model's native tool behavior
-  is also unverified.
+  batching contract or partial-failure schema. The historical chat native-tool
+  probe is user-reported in A-008; wider model and live voice behavior remain unverified.
 - Next action: Record separately dated, redacted results for each provider and its
   selected mode/version before implementing its adapter. Use Telegram only through
   the same planned transport boundary if the Caspian decision gate selects it.
 - Owner: Unassigned.
+
+- Update 2026-10-21: Vercel was selected for Jev. decisions/jev.py is implemented
+  against documented TypeSafe-compatible System One/Choice shapes and tested with
+  synthetic HTTP responses only. User approved mock-only work; live Jev remains
+  pending and its environment/settings composition is disabled. References:
+  https://vercel.com/docs/ai-gateway/sdks-and-apis/typesafe and
+  https://docs.typesafe.ai/primitives/choice.
+- User decision 2026-10-21: Keep chat transport selection pending. Telegram remains
+  the plan fallback, not an approved runtime selection in this session. Caspian
+  sender-trust, delivery and account access remain unverified. Bolna account,
+  turn mode and call-reference delivery remain unverified. Do not place a test
+  call without explicit authorization and a specified recipient.
 
 ## A-003: Feature configuration names are not active settings
 
@@ -52,6 +64,9 @@ do not silently delete them. Do not paste secrets or sensitive payloads.
 - Update 2026-10-20: `SVAAR_OPERATOR_TOKEN` (validated, passed to `app` only),
   invite, confirmation and policy settings are now active. Provider credentials
   remain comments, so this entry stays open.
+- Update 2026-10-21: LLM base URL/key/model are active all-or-none settings and are
+  passed only to app/gateway, not migrations. Jev/Bolna/channel settings still
+  await their feature composition. Local credential absence is tracked in A-010.
 - Owner: Unassigned.
 
 ## A-004: Upstream test-client deprecation warning
@@ -124,12 +139,14 @@ do not silently delete them. Do not paste secrets or sensitive payloads.
 
 ## A-008: Chat LLM selection and provider key setup
 
-- Status: Open; provider selected, smoke check not yet run (no keys configured as of
-  2026-10-20).
+- Status: Resolved for primary model selection and the user-reported 2026-10-20
+  native-tool probe. Fresh Mac access is pending credentials (A-010); voice
+  latency, backup models and transport connectivity are not verified.
 - Decision (2026-10-20): Chat and voice use one OpenAI-compatible adapter.
   - Primary: Groq, `SVAAR_LLM_BASE_URL=https://api.groq.com/openai/v1`,
-    `SVAAR_LLM_MODEL=llama-3.3-70b-versatile`. Chosen for low latency on the
-    8 second voice turn budget and a free tier without a card.
+    `SVAAR_LLM_MODEL=openai/gpt-oss-20b`, explicitly chosen by the user after
+    reporting the earlier llama candidate unavailable. No current quota or
+    first-token/voice-latency guarantee is inferred.
   - Backup: Google Gemini through its OpenAI-compatible endpoint
     `https://generativelanguage.googleapis.com/v1beta/openai/`, a Flash model.
   - Optional for comparison: OpenRouter free models, Cerebras.
@@ -138,7 +155,9 @@ do not silently delete them. Do not paste secrets or sensitive payloads.
 - Free-tier limits are from secondary 2026 comparison articles, not provider pages:
   Groq roughly 30 requests per minute on 70B models; Gemini roughly 1,500 requests
   per day on Flash. Free tiers may use submitted data for training, so send only
-  demo data. Native tool calling on these models is unverified until the smoke check.
+  demo data. These numerical free-tier notes are historical and unverified,
+  not current provider guarantees or configuration. Only the primary probe below
+  has user-reported native-tool evidence.
 - How to generate keys (each developer uses a personal account; never share or
   commit keys, and never paste them into chat or documents):
   1. Groq: sign in at <https://console.groq.com>, open API Keys, create a key, and set
@@ -151,19 +170,64 @@ do not silently delete them. Do not paste secrets or sensitive payloads.
      <https://dashboard.trycaspianai.com>, or run `caspian init project` outside the
      repository and copy `CASPIAN_API_KEY` to `SVAAR_CASPIAN_API_KEY`. Billing is
      prepaid credit; no free tier is documented.
-- Smoke check to run once keys exist: key accepted, configured model listed, three
-  native tool-call requests return the expected tool and arguments, median latency
-  recorded in seconds (non-streaming). Record dated, redacted results here.
+- User-reported probe on 2026-10-20:
+  {"requests":3,"native_tool_calls":true,"median_response_seconds":0.516,
+  "measurement":"non_streaming_full_response_not_first_token"}.
+  Source: terminal output supplied by the user from the old laptop, not a new
+  provider request by the agent. The probe executes no business tools.
+- On 2026-10-21 the migrated Mac .env has no active Groq credentials. Restore
+  them locally before any explicitly authorized fresh probe; do not paste keys
+  into chat. The adapter and all 195 tests pass with mocked inference.
 - Caspian documentation notes (read 2026-10-20, not a live check): hosted mode polls
   `GET /v1/events`, so no public route is needed; messages carry a stable `id`,
   `conversation_id`, `channel` and `sender {address, name}`. The documents do not say
   whether `sender.address` is verified by the platform, so Caspian senders are treated
   as unauthenticated until Caspian confirms it (A-002). Telegram remains the fallback.
-- Next action: Configure keys, run the smoke check, record results, then lock the
-  chat transport decision for Phase 2.
+- Next action: Restore local Groq credentials, then verify fresh account access
+  if authorized. Chat transport remains explicitly pending per A-002.
 - Owner: Unassigned.
+
+## A-009: Full turn deadlines need bounded synchronous handlers
+
+- Status: Open; runtime acceptance requirement.
+- Evidence: agent/inference.py bounds read-only inference waits. ToolContext
+  carries a monotonic deadline and the dispatcher checks it before a handler.
+- Impact: A late model result cannot execute tools, but a synchronous operation
+  already running cannot safely be killed. Full eight-second voice latency is
+  not established by mocked core tests.
+- Next action: Bound database/provider operations to their remaining budgets and
+  test actual handler latency and uncertain external outcomes (A-006). Preserve
+  durable replies and fallback delivery through the future outbox.
+- Owner: Unassigned.
+
+## A-010: Mac migration readiness and missing provider configuration
+
+- Status: Partially resolved on 2026-10-21; provider credentials remain blocking
+  for live integration only, not provider-independent development.
+- Resolved: uv 0.11.29, Python 3.12.15 virtual environment and locked backend/
+  frontend dependencies installed. Latest main recovered at 41a800a.
+  Docker PostgreSQL is healthy on localhost:5434; .env corrected from 5433.
+  Development schema is 0002, migration check is clean, health/readiness are 200.
+  A separate svaar_test database was created and all 195 tests passed with no
+  skips. Existing Starlette warning remains (A-004).
+- Local operator token generated privately and checked with a fresh application:
+  no token returns 401; valid token with invalid empty body returns 422 without
+  creating records. Restart the existing API process to load this new token.
+  Local .env also holds the separate test URL. Neither value is published.
+- Remaining: Groq key/model configuration, chat-provider credentials, Bolna key/
+  agent and live Jev access are absent in this Mac environment. Adding commented
+  planned names alone cannot activate unimplemented adapters.
+- Next action: User restores credentials locally, never through chat; transport
+  remains pending per explicit user choice. Jev stays mock-only. No provider
+  requests, calls, purchases or messages were made during these checks.
+- Owner: Local credentials supplied by the user; no provider/team owner assigned.
 
 ## Resolved entries
 
-None recorded yet. When resolving an entry, retain its ID, add the resolution date,
-relevant files and the specific check or external evidence establishing resolution.
+- A-008: Primary model and user-reported native-tool probe resolved for the scope
+  above. Mac credentials and broader integration remain separate open items.
+- A-010: Local dependencies, database port/migration and isolated test coverage
+  resolved on 2026-10-21. Provider setup remains open in that entry.
+
+When resolving an entry, retain its ID, add the resolution date, relevant files
+and the specific check or external evidence establishing resolution.
