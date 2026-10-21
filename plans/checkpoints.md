@@ -1,6 +1,6 @@
 # Svaar phase checkpoints
 
-Last reviewed: 2026-10-18 (Asia/Calcutta).
+Last reviewed: 2026-10-21 (Asia/Calcutta).
 
 ## How to use this checklist
 
@@ -22,8 +22,10 @@ reading order in agent tasks; these documents are not automatically loaded.
 
 Current position: Phase 0 is complete for local infrastructure. Phase 1 is in
 progress: its local identity, action gate, confirmation and decision-policy work is
-verified; provider contract checks and the Jev adapter remain. No provider
-verification or end-to-end business feature is claimed.
+verified. Phase 2 has a tested shared agent core and a standalone mocked Jev
+adapter, but no transport, durable chat runtime or live voice composition. The
+2026-10-20 Groq native-tool probe is user-reported historical evidence, not a
+fresh Mac provider check. Phase 1 and Phase 2 remain incomplete.
 
 ## Phase 0: Engineering foundation
 
@@ -47,8 +49,20 @@ files: src/svaar/, tests/, migrations/, compose.yaml, Dockerfile, README.md and
 .github/workflows/ci.yml. This is historical local evidence, not remote CI or
 production verification. Owner: not assigned in this document.
 
-Limits: gateway listener/outbox/jobs remain absent (A-001), feature settings are
-comments (A-003), and an upstream test-client warning remains (A-004).
+Limits: gateway listener/outbox/jobs remain absent (A-001); operator, policy and
+LLM settings are active but other provider settings remain planned (A-003).
+The upstream test-client warning remains (A-004).
+
+Mac verification on 2026-10-21: installed pinned uv 0.11.29 and locked Python
+dependencies with Python 3.12.15; frontend npm ci and production build passed.
+Local development PostgreSQL uses port 5434 and revision 0002. API health/readiness
+returned 200. A separate svaar_test database now exists; all 195 tests passed with
+no skips against it. Migration drift check, Ruff lint and format checks passed.
+A local operator token was generated without displaying it; a fresh application
+accepted authentication and rejected an empty create body with 422, while missing
+authentication returned 401. No organization or invite was created by that check.
+The already-running API must restart to pick up the new token. Credentials remain
+private and no provider requests were made. See A-010.
 
 ## Phase 1: Contract checks, identity and action safety
 
@@ -60,14 +74,18 @@ Target: Oct 18 to 19. Prerequisite: Phase 0.
 - [ ] Verify Bolna account readiness, turn mode, call-reference delivery and one
   explicitly authorized outbound test call.
 - [ ] Select Jev gateway/model and verify its actual request/response contract.
+  Vercel selected; versioned-model live acceptance is pending. User approved
+  mock-only development after observing that Jev is excluded from free credits.
+  No purchase was made by the agent.
 - [x] Implement scoped identities, expiring single-use invites and trusted bindings.
 - [x] Implement the actions registry/dispatcher, argument validation, role/org/channel
   checks, configured risk tiers and execution audit.
 - [x] Implement owner-bound atomic confirmations, expiry, execution authorization
   and an explicit uncertain-provider-outcome policy.
 - [ ] Implement typed Jev adapter, confidence policy, fallback and decision audit.
-  Policy, per-question fallback and audit are done; the gateway adapter is blocked
-  on the unverified Jev contract (A-002).
+  Policy, per-question fallback, audit and the standalone Vercel adapter have
+  offline coverage. Live verification and runtime settings/composition remain
+  pending (A-002); mocked success does not complete this deliverable.
 - [x] Define P0 intent/usability schemas and deterministic mission-guard interface.
 - [ ] Introduce validated feature settings with process-specific credential wiring.
   Operator, invite, confirmation and policy settings are active; provider settings
@@ -98,7 +116,7 @@ in this document. Local checks only, not remote CI or provider verification:
   src/svaar/decisions/, migrations/env.py, migrations/versions/0002_phase1_foundation.py,
   tests/, compose.yaml, .env.example, README.md.
 
-Remaining: provider contract checks (A-002), Jev gateway adapter, provider settings,
+Remaining: provider contract checks and live Jev acceptance (A-002), provider settings,
 phone binding challenge (Phase 3), reconciliation for unknown outcomes (A-006), and
 team review of the design choices in A-007.
 
@@ -108,13 +126,24 @@ Target: Oct 20 to 21. Prerequisites: identity/action gate and selected transport
 
 - [ ] Phase complete.
 - [ ] Implement transport protocol and the chosen authenticated chat adapter.
+  On 2026-10-21 the user explicitly kept the transport decision pending. Do not
+  silently select Telegram or enable Caspian; provider-independent work can proceed.
 - [ ] Implement durable inbound dedupe, retryable failures and thread/call memory.
-- [ ] Verify chat LLM native tool calling; implement the bounded adapter.
+- [x] Verify chat LLM native tool calling; implement the bounded adapter.
+  User-reported Groq openai/gpt-oss-20b probe on 2026-10-20: three requests,
+  native_tool_calls=true, median full non-streaming response 0.516 seconds.
+  No first-token or full voice-latency claim. Mac credentials remain unset (A-010).
 - [ ] Implement chat/voice profiles, pre-execution round/call limits and deadlines.
-- [ ] Generate registry-based tool policy; dispatch every tool through actions.
+  Core profiles, limits and absolute inference deadlines are implemented/tested.
+  Full synchronous provider-handler latency remains an acceptance item (A-009).
+- [x] Generate registry-based tool policy; dispatch every tool through actions.
 - [ ] Implement durable outbox sending with receipt/failure state.
 - [ ] Implement and inject TurnRunner without agent/voice implementation imports.
+  AgentLoop exists and API composition is optional; trusted call-ID resolution
+  and the run_turn binding are not implemented.
 - [ ] Integrate transcript usability, intent routing and deterministic mission limits.
+  Core gates and mission checks have mocked coverage. Live Jev, call binding and
+  transport wiring remain pending; unconfigured voice gates request clarification.
 - [ ] Replace gateway refusal with real runtime composition, shutdown and runtime
   health reporting; API readiness is not listener health.
 
@@ -122,7 +151,12 @@ Exit check: invite enrollment, whoami and a read tool work in chat; a resent mes
 has one effect; unusable/ambiguous speech cannot invoke tools; deadlines and limits
 hold. Required quality checks pass. Track A-001 and A-002.
 
-Evidence: Pending.
+Evidence on 2026-10-21: all 195 existing tests passed on Mac with isolated
+PostgreSQL, including agent-loop and Jev HTTP/policy/audit scenarios. Shared
+implementation: agent/{llm,loop,profiles,prompts,inference,smoke}.py and
+decisions/jev.py. Jev uses synthetic HTTP responses only. No provider was called.
+Only whoami is registered as a business tool; confirm_action is dispatcher-owned.
+No chat listener, durable inbound/memory/outbox storage or job runtime exists.
 
 ## Phase 3: Mission-bound voice transport
 
