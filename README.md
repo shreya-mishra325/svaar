@@ -167,6 +167,20 @@ Settings read environment variables before optional `.env` values. Invalid setti
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Local Compose initialization only |
 | `SVAAR_TEST_DATABASE_URL` | Optional dedicated database for PostgreSQL tests |
 
+For a local database using a different published port, align the port in the
+private `.env` URL with `docker compose port db 5432`; do not change shared
+Compose defaults for another developer. The migrated Mac currently uses 5434.
+Use a separate disposable database for tests. When its URL is stored in the local
+`.env`, load it explicitly so PostgreSQL tests do not silently skip:
+
+```sh
+uv run --locked --env-file .env pytest -p no:cacheprovider -q
+```
+
+That URL must name the dedicated test database, never the development database:
+database fixtures truncate domain tables. Restart Uvicorn after editing `.env`;
+Python file reload does not ensure new environment values have been loaded.
+
 ### Active feature settings
 
 | Variable | Default / requirement |
