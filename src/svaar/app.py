@@ -12,6 +12,7 @@ from svaar.actions.catalog import build_registry
 from svaar.actions.dispatcher import ApprovalPolicy, Dispatcher
 from svaar.agent.llm import HttpChatModel
 from svaar.agent.loop import AgentLoop
+from svaar.agent.runtime import ChatRuntime
 from svaar.api.errors import ErrorResponse, install_error_handlers
 from svaar.api.health import router as health_router
 from svaar.api.router import api_router
@@ -42,6 +43,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 dispatcher = Dispatcher(build_registry(), ApprovalPolicy.from_settings(settings))
                 loop = AgentLoop(model, dispatcher, DecisionService.from_settings(None, settings))
             app.state.agent_loop = loop
+            app.state.chat_runtime = (
+                ChatRuntime(app.state.session_factory, loop) if loop is not None else None
+            )
             yield
         finally:
             try:
@@ -50,6 +54,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if model is not None:
                     await run_in_threadpool(model.close)
             finally:
+                if hasattr(app.state, "chat_runtime"):
+                    del app.state.chat_runtime
                 if hasattr(app.state, "agent_loop"):
                     del app.state.agent_loop
                 await run_in_threadpool(engine.dispose)
