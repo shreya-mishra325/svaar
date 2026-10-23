@@ -10,12 +10,14 @@ class TurnRunner(Protocol):
     nor voice imports the other package's implementation.
     """
 
-    def run_turn(self, call_id: str, text: str) -> str:
+    def run_turn(self, call_id: str, text: str, *, turn_index: int | None = None) -> str:
         """Process caller text within the call's existing identity and mission.
 
         Args:
             call_id: Identifier of the Svaar voice call.
             text: The caller's transcribed words for this turn.
+            turn_index: Stable zero-based turn index supplied by the trusted transport.
+                Missing indices must refuse execution, not dedupe by utterance text.
 
         Returns:
             Short spoken-style reply text.

@@ -34,6 +34,7 @@ class ToolContext:
         correlation_id: Identifier tying audit rows to a turn or request.
         deadline: Optional absolute monotonic deadline; provider handlers must bound
             their timeouts to its remaining budget. Never persist this clock value.
+        phone_challenge_id: Server-bound pending challenge, only for phone_verify.
     """
 
     org_id: uuid.UUID
@@ -42,6 +43,7 @@ class ToolContext:
     mission: Mission | None
     correlation_id: str
     deadline: float | None = None
+    phone_challenge_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)

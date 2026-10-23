@@ -1,14 +1,14 @@
 """Provider-independent durable chat coordinator; no listener is started here.
 
-Verified transport identity is required even for invite redemption. Caspian's
-current untrusted sender addresses are intentionally refused. Models and tool
+Transport-authenticated private identity is required even for invite redemption.
+Caspian uses the explicitly approved MVP sender-address policy. Models and tool
 handlers stay behind the existing AgentLoop/actions boundary.
 """
 
 import hashlib
 import json
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 
@@ -21,6 +21,7 @@ from svaar.agent.loop import HISTORY_LIMIT, AgentLoop
 from svaar.agent.models import Conversation, InboundRecord, Message, OutboxMessage
 from svaar.agent.transport import InboundMessage
 from svaar.approvals.service import normalize_nonce
+from svaar.identity.phones import issue_phone_challenge
 from svaar.identity.service import IdentityError, redeem_invite, resolve_principal
 
 
@@ -35,8 +36,16 @@ class ProcessingResult:
 class ChatRuntime:
     """Serialize a private conversation across processes, including tool commits."""
 
-    def __init__(self, sessions: sessionmaker[Session], agent: AgentLoop) -> None:
+    def __init__(
+        self,
+        sessions: sessionmaker[Session],
+        agent: AgentLoop,
+        *,
+        prepare_phone_call: Callable[[Session, uuid.UUID, uuid.UUID, uuid.UUID], None]
+        | None = None,
+    ) -> None:
         self.sessions, self.agent = sessions, agent
+        self.prepare_phone_call = prepare_phone_call
 
     @contextmanager
     def _lock(self, incoming: InboundMessage) -> Iterator[bool]:
@@ -189,6 +198,48 @@ class ChatRuntime:
             session.rollback()
             return ProcessingResult("thread_not_authorized")
 
+        if incoming.text.strip().split(maxsplit=1)[0].lower() == "/verify_phone":
+            # Identity enrollment command, like /join: never expose a pending
+            # number or secret challenge code to inference or history.
+            parts = incoming.text.strip().split()
+            reply = "Use /verify_phone followed by your phone number in E.164 format."
+            outcome = "phone_verification_rejected"
+            challenge_id = None
+            if self.prepare_phone_call is None:
+                reply = "Phone verification is not configured."
+            elif len(parts) == 2:
+                try:
+                    with session.begin_nested():
+                        issued = issue_phone_challenge(
+                            session,
+                            org_id=principal.org_id,
+                            principal_id=principal.id,
+                            phone=parts[1],
+                        )
+                        self.prepare_phone_call(
+                            session,
+                            principal.org_id,
+                            principal.id,
+                            issued.challenge_id,
+                        )
+                    challenge_id = issued.challenge_id
+                    reply = (
+                        f"Phone verification code: {issued.code}. It expires in 10 minutes. "
+                        "Read it during your verification call. "
+                        "The call is pending and must be started separately; "
+                        "this message does not verify your phone."
+                    )
+                    outcome = "phone_verification_pending"
+                except IdentityError:
+                    reply = (
+                        "Phone verification is unavailable. Check the number and wait "
+                        "at least one minute before requesting another code."
+                    )
+            self._enqueue(session, record.id, 0, reply, phone_challenge_id=challenge_id)
+            record.state = "processed"
+            session.commit()  # Challenge, call intent, code outbox and dedupe are atomic.
+            return ProcessingResult(outcome, record.id)
+
         if enrollment:
             self._enqueue(session, record.id, 0, "You are enrolled. You can now ask whoami.")
             record.state = "processed"
@@ -250,5 +301,19 @@ class ChatRuntime:
             return ProcessingResult("reconciliation_required", record_id)
 
     @staticmethod
-    def _enqueue(session: Session, inbound_id: uuid.UUID, ordinal: int, body: str) -> None:
-        session.add(OutboxMessage(inbound_id=inbound_id, ordinal=ordinal, body=body))
+    def _enqueue(
+        session: Session,
+        inbound_id: uuid.UUID,
+        ordinal: int,
+        body: str,
+        *,
+        phone_challenge_id: uuid.UUID | None = None,
+    ) -> None:
+        session.add(
+            OutboxMessage(
+                inbound_id=inbound_id,
+                ordinal=ordinal,
+                body=body,
+                phone_challenge_id=phone_challenge_id,
+            )
+        )

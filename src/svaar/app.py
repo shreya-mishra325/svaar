@@ -13,6 +13,7 @@ from svaar.actions.dispatcher import ApprovalPolicy, Dispatcher
 from svaar.agent.llm import HttpChatModel
 from svaar.agent.loop import AgentLoop
 from svaar.agent.runtime import ChatRuntime
+from svaar.agent.voice_runner import VoiceAgentExecutor
 from svaar.api.errors import ErrorResponse, install_error_handlers
 from svaar.api.health import router as health_router
 from svaar.api.router import api_router
@@ -20,6 +21,9 @@ from svaar.config import Settings
 from svaar.db import create_database_engine
 from svaar.decisions.service import DecisionService
 from svaar.logging import configure_logging
+from svaar.voice.calls import prepare_phone_verification_call
+from svaar.voice.contracts import TurnRunner
+from svaar.voice.runtime import VoiceRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +48,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 loop = AgentLoop(model, dispatcher, DecisionService.from_settings(None, settings))
             app.state.agent_loop = loop
             app.state.chat_runtime = (
-                ChatRuntime(app.state.session_factory, loop) if loop is not None else None
+                ChatRuntime(
+                    app.state.session_factory,
+                    loop,
+                    prepare_phone_call=prepare_phone_verification_call,
+                )
+                if loop is not None
+                else None
             )
+            runner: TurnRunner | None = (
+                VoiceRuntime(app.state.session_factory, VoiceAgentExecutor(loop))
+                if loop is not None
+                else None
+            )
+            app.state.voice_turn_runner = runner
             yield
         finally:
             try:
@@ -54,6 +70,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if model is not None:
                     await run_in_threadpool(model.close)
             finally:
+                if hasattr(app.state, "voice_turn_runner"):
+                    del app.state.voice_turn_runner
                 if hasattr(app.state, "chat_runtime"):
                     del app.state.chat_runtime
                 if hasattr(app.state, "agent_loop"):

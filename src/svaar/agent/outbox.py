@@ -12,6 +12,7 @@ from svaar.agent.transport import (
     DeliveryRejectedError,
     InboundMessage,
 )
+from svaar.identity.phones import pending_phone
 from svaar.identity.service import resolve_principal
 
 
@@ -62,6 +63,19 @@ class OutboxSender:
                 principal.id != conversation.principal_id or principal.org_id != conversation.org_id
             ):
                 row.state, row.error_code = "failed", "recipient_not_authorized"
+                session.commit()
+                return row.id
+            if (
+                row.phone_challenge_id is not None
+                and pending_phone(
+                    session,
+                    org_id=principal.org_id,
+                    principal_id=principal.id,
+                    challenge_id=row.phone_challenge_id,
+                )
+                is None
+            ):
+                row.state, row.error_code = "failed", "phone_challenge_unavailable"
                 session.commit()
                 return row.id
             target = InboundMessage(
