@@ -37,6 +37,16 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr | None = None
     llm_model: str | None = None
 
+    channel_transport: Literal["caspian", "telegram"] | None = None
+    gateway_poll_seconds: float = Field(default=2.0, ge=0.1, le=30.0)
+    gateway_batch_size: int = Field(default=10, ge=1, le=100)
+
+    # Hosted Caspian Telegram adapter; credentials alone never start a listener.
+    caspian_base_url: str | None = None
+    caspian_api_key: SecretStr | None = None
+    caspian_telegram_connection_id: str | None = Field(default=None, repr=False)
+    caspian_telegram_address: str | None = Field(default=None, repr=False)
+
     # Identity and approvals.
     invite_ttl_hours: int = Field(default=72, ge=1, le=720)
     confirmation_ttl_seconds: int = Field(default=600, ge=60, le=3600)
@@ -61,7 +71,18 @@ class Settings(BaseSettings):
             raise ValueError("Database URL requires username, password, host, and database")
         return value
 
-    @field_validator("operator_token", "llm_api_key", "llm_base_url", "llm_model", mode="before")
+    @field_validator(
+        "operator_token",
+        "channel_transport",
+        "llm_api_key",
+        "llm_base_url",
+        "llm_model",
+        "caspian_base_url",
+        "caspian_api_key",
+        "caspian_telegram_connection_id",
+        "caspian_telegram_address",
+        mode="before",
+    )
     @classmethod
     def empty_token_is_unset(cls, value: object) -> object:
         """Treat an empty variable, as copied from .env.example, as not configured."""
@@ -97,6 +118,16 @@ class Settings(BaseSettings):
             raise ValueError(
                 "LLM URL requires HTTP(S), a host, and no credentials, query or fragment"
             )
+        return value.rstrip("/")
+
+    @field_validator("caspian_base_url")
+    @classmethod
+    def validate_caspian_url(cls, value: str | None) -> str | None:
+        """Constrain credentials to the verified hosted endpoint."""
+        if value is None:
+            return None
+        if value.rstrip("/") != "https://api.trycaspianai.com":
+            raise ValueError("Use the verified Caspian HTTPS endpoint")
         return value.rstrip("/")
 
     @model_validator(mode="after")
