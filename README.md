@@ -18,10 +18,12 @@ foundation: identity with single-use invites, the `actions` registry and dispatc
 mission guard and execution audit, owner-bound confirmations, and P0 decision schemas with
 confidence policy, heuristic fallback and decision audit. Phase 2 now includes the shared
 transport-independent agent core, an OpenAI-compatible HTTP adapter, bounded chat/voice
-profiles, registry-generated policy, and audited voice usability/intent gates. Transports,
-durable conversation/delivery storage, trusted call resolution, the Jev gateway adapter and
-incident features remain unfinished. Model contracts have offline tests; no live model or
-channel smoke check is claimed. Cerebro is an architectural reference, not a deployed dependency.
+profiles, registry-generated policy and audited voice usability/intent gates. Durable chat
+history, inbound dedupe and an outbox worker now exist, verified with fake transports and real
+PostgreSQL. The standalone Caspian adapter has read-only connection/poll acceptance; Groq smoke
+results are user-reported. Live channel enrollment, verified provider activation, trusted
+call resolution, live Jev wiring and incident features remain unfinished. Cerebro is an
+architectural reference, not a deployed dependency.
 
 ## How it works
 
@@ -91,7 +93,7 @@ External SDKs and HTTP contracts belong behind adapters, never in deterministic 
 | Process | Target responsibility / current status |
 | --- | --- |
 | `app` | FastAPI. Only probes are implemented; voice, webhook, incident and operator routes are future work |
-| `gateway` | Future chat listener, outbox sender and guarded polling loop. Opt-in Compose profile; only the infrastructure diagnostic works today |
+| `gateway` | Opt-in chat polling, durable cursor, outbox and heartbeat wiring. Missing configuration prevents live startup; incident polling jobs remain pending |
 
 Both are built from the same image. Only Bolna and GitHub (and the chat channel provider, if it delivers by webhook) need to reach the application. Expose only the voice and webhook routes through a tunnel. Keep `/docs` and every other route local.
 
@@ -245,7 +247,7 @@ Model selection stays in local `SVAAR_LLM_MODEL`; no provider model is hardcoded
 
 `AgentLoop.run` accepts a server-resolved `ToolContext`, a caller-owned session and already
 scoped history. It never invokes handlers directly. The caller must persist/dedupe the turn
-and enqueue replies, confirmation tickets and fallback notifications through the future outbox.
+and enqueue replies, confirmation tickets and fallback notifications through the outbox coordinator.
 Tickets must never enter model history, a spoken reply or logs. The loop does not implement
 the call-ID `TurnRunner` contract yet because trusted call resolution belongs to the voice phase.
 
@@ -256,6 +258,125 @@ monotonic budget as `call.context.deadline` and must use bounded database/provid
 A running external effect cannot safely be cancelled. End-to-end tool latency and unknown
 outcomes still need adapter-specific validation; see plans/anomaly.md A-009.
 
+### Durable chat processing
+
+Migration 0003 adds conversations, ordered messages, inbound_messages and
+outbox_messages. ChatRuntime accepts only transport-authenticated senders and uses
+the existing invite/identity services and shared AgentLoop. Application lifespan
+exposes it as app.state.chat_runtime when the LLM is configured; no route or
+listener calls it automatically. The Caspian adapter trusts private sender addresses under the approved MVP policy.
+
+A fake authenticated sender can redeem `/join CODE`, ask `whoami` through the real
+action dispatcher, and receive replies through a fake outbox transport. Duplicate
+message IDs do not rerun tools. Route IDs are connection-scoped; thread ownership
+and organization are checked before history is loaded. Invite commands and
+confirmation codes/tickets are excluded from subsequent model history.
+
+PostgreSQL session advisory locks serialize a sender/thread even if a dispatcher
+commits mid-turn. A dedicated lock connection is held for the turn; this uses one
+additional pooled connection per concurrent turn. The database connection timeout
+bounds lock-connection checkout; a busy conversation returns a retryable busy
+outcome rather than waiting indefinitely.
+
+Received inbound records can resume before model/tool execution. The processing
+marker commits before invoking the agent. A crash or unexpected failure after that
+point requires reconciliation, even if no side effect can later be proven.
+Processing state, safe history and outbox replies commit together after the turn.
+This deliberately favors avoiding repeated effects over automatic recovery.
+
+OutboxSender claims rows with FOR UPDATE SKIP LOCKED and commits sending before
+network I/O. It rechecks the verified recipient, retries only explicit known-safe
+rejections with bounded exponential backoff, and never retries uncertain outcomes.
+Caspian 429 rejections can retry; other 4xx rejections are permanent. Queued receipts
+are reconciled by GET using their delivery IDs. A crash leaving sending is treated
+as uncertain; those rows require operator review rather than automatic resend.
+
+No live sends, billing operations, Bolna calls or Jev requests are part of these
+checks. Operator reconciliation UI and voice/call memory remain pending. Gateway wiring
+and durable cursors are described below; live channel acceptance is separate.
+
+### Gateway wiring and health
+
+Migration 0004 adds gateway_cursors in the same PostgreSQL database. This small
+table is necessary to resume a project event stream across restarts and record
+runtime health; a conversation row alone cannot represent a project cursor.
+
+GatewayWorker connects polling -> ChatRuntime -> OutboxSender -> receipt reads.
+A PostgreSQL advisory lock gives one worker ownership of a stream page. Cursor
+advancement occurs after processing has durably completed; replay after a crash
+passes through inbound dedupe. Busy or untrusted messages do not advance the
+cursor. Poll failures use bounded backoff and never bypass action gates.
+
+Normal startup requires SVAAR_CHANNEL_TRANSPORT=caspian, complete LLM/Caspian
+configuration and an active matching Caspian connection. The approved MVP policy
+uses the private sender address returned by the authenticated Caspian API for
+identity binding. A separate stable sender-ID contract is not required. Invites,
+organization/role checks and confirmations remain enforced. Missing keys can be
+supplied later without introducing fake defaults.
+SIGTERM/SIGINT request shutdown; all composed provider/database resources close.
+
+```sh
+uv run --locked python -m svaar.gateway --check
+uv run --locked python -m svaar.gateway --status
+```
+
+--check verifies database infrastructure only. --status makes no provider calls
+and succeeds only for a fresh ready/processing heartbeat; absent, blocked, errored,
+stopped or stale workers fail it. A heartbeat expires after 60 seconds. Compose
+uses --status for gateway health, independently of the API readiness probe.
+
+SVAAR_GATEWAY_POLL_SECONDS defaults to 2 and SVAAR_GATEWAY_BATCH_SIZE to 10;
+both are bounded settings passed only to gateway. Fake-transport/PostgreSQL tests
+verify composition, cleanup, persisted cursor restart, deduped crash replay,
+stream exclusion, rejected sender pages, shutdown and stale health. No live
+listener, model request or outbound delivery was started during these checks.
+
+### Caspian Telegram adapter
+
+The selected first channel is Telegram through Caspian hosted polling.
+The standalone adapter reads the deployed v0.1.0 HTTP API with existing httpx;
+the current upstream SDK is a 1.0 rewrite, so its constructors are not assumed
+compatible with the hosted REST API.
+
+Set all four local fields to run the read-only probe:
+`SVAAR_CASPIAN_BASE_URL=https://api.trycaspianai.com`,
+`SVAAR_CASPIAN_API_KEY`, `SVAAR_CASPIAN_TELEGRAM_CONNECTION_ID` and
+`SVAAR_CASPIAN_TELEGRAM_ADDRESS`. The address identifies the bot, not a human.
+Partial credentials do not start any feature. Compose forwards these fields only
+to gateway. The direct Telegram bot token is not used by this hosted adapter.
+
+```sh
+uv run --locked python -m svaar.agent.caspian_smoke
+```
+
+The probe checks an existing active connection, address/capabilities and one
+polling page; it sends no message, provisions nothing and persists no cursor.
+A read-only project event request returned 200 on 2026-10-23. The saved local
+connection ID/address were initially absent at that check. After the user saved them,
+the read-only probe passed connection/address/capability and polling checks. It
+sampled zero eligible private text messages. Sender identity and outbound delivery
+remain unverified; no live messages were sent.
+
+Polling uses ordered `after_seq` events. Only fresh private text from the selected
+connection becomes input; edits, groups, generated messages and other connections
+are excluded. GatewayWorker persists processing results before advancing the stream cursor. The adapter itself supplies no durable
+dedupe, memory or outbox.
+
+Outbound POSTs are never automatically retried. A queued receipt means provider
+acceptance, not final delivery; follow up using its message ID. Timeouts, server
+errors and invalid receipts are uncertain outcomes for reconciliation.
+
+**MVP identity policy (user decision, 2026-10-23):** trust Caspian private-chat
+sender.address without requiring a separate stable-ID contract. The adapter marks
+these validated private messages authenticated; invites still determine enrollment
+and roles. Official source prefers mutable Telegram usernames, so changes or
+reassignment can affect existing bindings. This is an accepted MVP limitation,
+not evidence of an immutable identity guarantee.
+
+Contracts: [deployed OpenAPI](https://api.trycaspianai.com/openapi.json) and
+[official Telegram provider](https://github.com/TryCaspian/caspian-sdk/blob/718a96d6d04cb76c7ccce942d2532fd4adbfd545/server/src/comm_gateway/providers/telegram.py).
+HTTP tests use synthetic payloads; no live outbound acceptance is claimed.
+
 ### Planned feature settings
 
 These variables are introduced with the feature that reads them and must be validated at
@@ -265,7 +386,7 @@ only to the processes that need them as the feature is implemented.
 
 | Area | Variables |
 | --- | --- |
-| Channels | `SVAAR_CHANNEL_TRANSPORT` (`caspian` or `telegram`), `SVAAR_CASPIAN_API_KEY`, `SVAAR_CASPIAN_BASE_URL`, `SVAAR_CASPIAN_WEBHOOK_SECRET`, `SVAAR_TELEGRAM_BOT_TOKEN` |
+| Channels | `SVAAR_CASPIAN_WEBHOOK_SECRET`, `SVAAR_TELEGRAM_BOT_TOKEN` |
 | Jev | `SVAAR_JEV_BASE_URL`, `SVAAR_JEV_API_KEY`, `SVAAR_JEV_MODEL` |
 | Bolna | `SVAAR_BOLNA_API_KEY`, `SVAAR_BOLNA_AGENT_ID`, `SVAAR_VOICE_TURN_MODE` (`llm_endpoint` or `function`), `SVAAR_VOICE_TURN_TOKEN`, `SVAAR_VOICE_STATUS_SECRET` |
 | GitHub | `SVAAR_GITHUB_APP_ID`, `SVAAR_GITHUB_PRIVATE_KEY_B64`, `SVAAR_GITHUB_INSTALLATION_ID`, `SVAAR_GITHUB_WEBHOOK_SECRET` |

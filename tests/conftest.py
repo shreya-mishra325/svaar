@@ -49,6 +49,11 @@ def client(app: FastAPI) -> Iterator[TestClient]:
 
 
 DOMAIN_TABLES = (
+    "gateway_cursors",
+    "outbox_messages",
+    "messages",
+    "inbound_messages",
+    "conversations",
     "invites",
     "channel_bindings",
     "principals",

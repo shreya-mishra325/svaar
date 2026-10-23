@@ -81,6 +81,7 @@ def test_configured_agent_lifecycle_does_not_call_provider(
     def lifecycle() -> None:
         with TestClient(app):
             assert app.state.agent_loop is not None
+            assert app.state.chat_runtime.agent is app.state.agent_loop
             app.state.engine.dispose = Mock(wraps=app.state.engine.dispose)
             disposals.append(app.state.engine.dispose)
             model.complete.assert_not_called()
@@ -95,4 +96,5 @@ def test_configured_agent_lifecycle_does_not_call_provider(
     model.close.assert_called_once_with()
     disposals[0].assert_called_once_with()
     assert not hasattr(app.state, "agent_loop")
+    assert not hasattr(app.state, "chat_runtime")
     assert not hasattr(app.state, "engine")

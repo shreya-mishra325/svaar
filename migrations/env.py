@@ -3,6 +3,7 @@
 from alembic import context
 
 import svaar.actions.models  # noqa: F401
+import svaar.agent.models  # noqa: F401
 import svaar.approvals.models  # noqa: F401
 import svaar.decisions.models  # noqa: F401
 import svaar.identity.models  # noqa: F401
