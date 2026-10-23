@@ -12,6 +12,7 @@ from svaar.actions.catalog import build_registry
 from svaar.actions.dispatcher import ApprovalPolicy, Dispatcher
 from svaar.agent.llm import HttpChatModel
 from svaar.agent.loop import AgentLoop
+from svaar.agent.notifications import enqueue_voice_fallback
 from svaar.agent.runtime import ChatRuntime
 from svaar.agent.voice_runner import VoiceAgentExecutor
 from svaar.api.errors import ErrorResponse, install_error_handlers
@@ -57,7 +58,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 else None
             )
             runner: TurnRunner | None = (
-                VoiceRuntime(app.state.session_factory, VoiceAgentExecutor(loop))
+                VoiceRuntime(
+                    app.state.session_factory,
+                    VoiceAgentExecutor(loop),
+                    notify_failure=enqueue_voice_fallback,
+                )
                 if loop is not None
                 else None
             )
