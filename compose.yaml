@@ -59,17 +59,30 @@ services:
       migrate:
         condition: service_completed_successfully
 
-  # Reserved for the agent runtime. Default startup explicitly refuses to idle
-  # without a listener; --check validates infrastructure without starting one.
+  # Opt-in runtime; missing configuration fails closed.
+  # --check checks the DB; --status checks a fresh persisted worker heartbeat.
   gateway:
     <<: *application
-    environment: *agent-environment
+    environment:
+      <<: *agent-environment
+      SVAAR_CHANNEL_TRANSPORT: ${SVAAR_CHANNEL_TRANSPORT:-}
+      SVAAR_GATEWAY_POLL_SECONDS: ${SVAAR_GATEWAY_POLL_SECONDS:-2}
+      SVAAR_GATEWAY_BATCH_SIZE: ${SVAAR_GATEWAY_BATCH_SIZE:-10}
+      # Adapter credentials are gateway-only; never pass to migrations or frontend.
+      SVAAR_CASPIAN_BASE_URL: ${SVAAR_CASPIAN_BASE_URL:-}
+      SVAAR_CASPIAN_API_KEY: ${SVAAR_CASPIAN_API_KEY:-}
+      SVAAR_CASPIAN_TELEGRAM_CONNECTION_ID: ${SVAAR_CASPIAN_TELEGRAM_CONNECTION_ID:-}
+      SVAAR_CASPIAN_TELEGRAM_ADDRESS: ${SVAAR_CASPIAN_TELEGRAM_ADDRESS:-}
     profiles: ["gateway"]
     init: true
     entrypoint: ["python", "-m", "svaar.gateway"]
     command: []
     healthcheck:
-      disable: true
+      test: ["CMD", "python", "-m", "svaar.gateway", "--status"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     depends_on:
       migrate:
         condition: service_completed_successfully
