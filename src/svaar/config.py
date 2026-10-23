@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     bolna_api_key: SecretStr | None = None
     bolna_agent_id: uuid.UUID | None = None
 
+    # GitHub inbound HMAC only; not GitHub App/API access.
+    github_webhook_secret: SecretStr | None = None
+
     # Identity and approvals.
     invite_ttl_hours: int = Field(default=72, ge=1, le=720)
     confirmation_ttl_seconds: int = Field(default=600, ge=60, le=3600)
@@ -78,6 +81,7 @@ class Settings(BaseSettings):
 
     @field_validator(
         "operator_token",
+        "github_webhook_secret",
         "bolna_api_key",
         "bolna_agent_id",
         "channel_transport",
@@ -97,7 +101,7 @@ class Settings(BaseSettings):
             return None
         return value
 
-    @field_validator("operator_token")
+    @field_validator("operator_token", "github_webhook_secret")
     @classmethod
     def validate_token_strength(cls, value: SecretStr | None) -> SecretStr | None:
         """Reject short bearer tokens that could be guessed."""

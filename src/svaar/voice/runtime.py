@@ -22,15 +22,43 @@ from svaar.identity.service import get_principal
 from svaar.voice.models import VoiceCall, VoiceTurn
 
 REFUSAL = "I can't access that call."
-FALLBACK = "I can't check that right now, I will message you."
+FALLBACK = "I can't check that right now. Please continue in chat."
+QUEUED_FALLBACK = "I can't check that right now. I have queued a private chat follow-up."
 Executor = Callable[[Session, ToolContext, str, Sequence[Mapping[str, Any]]], tuple[str, str]]
 
 
 class VoiceRuntime:
     """Persist one result per server-resolved call/turn, with bounded private history."""
 
-    def __init__(self, sessions: sessionmaker[Session], execute: Executor) -> None:
+    def __init__(
+        self,
+        sessions: sessionmaker[Session],
+        execute: Executor,
+        *,
+        notify_failure: Callable[[Session, uuid.UUID, uuid.UUID, uuid.UUID, int], bool]
+        | None = None,
+    ) -> None:
         self.sessions, self.execute = sessions, execute
+        self.notify_failure = notify_failure
+
+    def _failure_reply(self, session: Session, call: VoiceCall, index: int) -> str:
+        """Queue a generic follow-up atomically; never promise delivery without a route."""
+        if self.notify_failure is not None:
+            try:
+                with session.begin_nested():
+                    queued = self.notify_failure(
+                        session,
+                        call.org_id,
+                        call.principal_id,
+                        call.id,
+                        index,
+                    )
+                if queued:
+                    return QUEUED_FALLBACK
+            except Exception:
+                # Notification failure must not undo an uncertain execution marker.
+                pass
+        return FALLBACK
 
     def run_turn(self, call_id: str, text: str, *, turn_index: int | None = None) -> str:
         """Run or reuse a turn; missing stable indices never execute the agent.
@@ -120,7 +148,11 @@ class VoiceRuntime:
         if existing is not None:
             if existing.payload_hash != fingerprint:
                 return REFUSAL
-            return existing.reply if existing.state == "processed" and existing.reply else FALLBACK
+            if existing.state == "processed" and existing.reply:
+                return existing.reply
+            reply = self._failure_reply(session, call, index)
+            session.commit()
+            return reply
         if any(turn.state != "processed" for turn in turns):
             return FALLBACK
         if index != (turns[0].turn_index + 1 if turns else 0):
@@ -151,6 +183,8 @@ class VoiceRuntime:
             reply, reason = self.execute(session, context, text, history)
             if not isinstance(reply, str) or not reply.strip():
                 raise ValueError("Invalid agent reply")
+            if reason in {"unavailable", "tool_limit"}:
+                reply = self._failure_reply(session, call, index)
             # Unusable speech and spoken codes do not enter later prompts.
             sensitive = len(re.sub(r"\D", "", text)) == 6 or mission in {
                 Mission.CONFIRMATION,
@@ -179,5 +213,6 @@ class VoiceRuntime:
             session.rollback()
             turn = session.get(VoiceTurn, turn.id)
             turn.state, turn.reason = "unknown", "reconciliation_required"
+            reply = self._failure_reply(session, call, index)
             session.commit()
-            return FALLBACK
+            return reply

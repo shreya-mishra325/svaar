@@ -92,7 +92,7 @@ External SDKs and HTTP contracts belong behind adapters, never in deterministic 
 
 | Process | Target responsibility / current status |
 | --- | --- |
-| `app` | FastAPI. Only probes are implemented; voice, webhook, incident and operator routes are future work |
+| `app` | FastAPI probes, operator org/invite/repo-mapping routes and authenticated GitHub ingress. Internal voice runner exists; provider voice routes remain pending |
 | `gateway` | Opt-in chat polling, durable cursor, outbox and heartbeat wiring. Missing configuration prevents live startup; incident polling jobs remain pending |
 
 Both are built from the same image. Only Bolna and GitHub (and the chat channel provider, if it delivers by webhook) need to reach the application. Expose only the voice and webhook routes through a tunnel. Keep `/docs` and every other route local.
@@ -607,3 +607,60 @@ Development database is migrated through 0008; the isolated test DB passed its
 migration round trip/drift checks. This supersedes earlier unapplied-migration
 notes. Restart running application/gateway processes to load the new code.
 Migration downgrade refuses unresolved private-code deliveries.
+
+### Voice failure follow-ups
+
+Application composition injects enqueue_voice_fallback into the voice runner.
+Unavailable/tool-limited turns and unexpected failures queue one generic private
+chat follow-up per call/turn through the existing outbox. Processing/unknown
+retries can queue the notification without repeating tools. Notifications contain
+no caller transcript, phone or secret code.
+
+Routing requires exactly one existing scoped conversation with a verified binding.
+Missing/ambiguous routes or notification failure produce a spoken request to
+continue in chat. A queued follow-up is described as queued, never delivered.
+Recipient verification, bounded safe rejection retries and uncertain-send handling
+remain enforced by OutboxSender. Confirmation-ticket delivery and real voice
+latency/acceptance remain pending.
+
+### GitHub workflow ingress
+
+Implemented endpoints:
+
+| Endpoint | Authentication | Behavior |
+| --- | --- | --- |
+| POST /api/v1/repo-mappings | Operator token | Bind numeric repository and installation IDs to an existing org; overwrites refused |
+| POST /api/v1/webhooks/github | Raw-body HMAC | Persist validated, explicitly mapped workflow_run observations |
+
+Set SVAAR_GITHUB_WEBHOOK_SECRET locally to a high-entropy value of at least
+32 characters. It is optional and forwarded only to the app container; absent
+configuration returns 503. GitHub App credentials are separate and its outbound
+REST client is not implemented. No token or new provider account is needed to
+run the synthetic tests.
+
+The handler verifies the exact request bytes before JSON parsing and caps bodies
+at 1 MiB. It rejects invalid signatures, ambiguous JSON and inconsistent typed
+workflow states. Mapped repository and installation IDs are required; sender names
+never establish scope. Synchronous database work runs off the async request loop.
+
+Malformed JSON returns 400, unsupported events return 200 with handled=false,
+unmapped repositories return 404, and conflicting delivery reuse returns 409.
+Delivery IDs and stable run-transition keys dedupe separately. Normalized
+observations and receipt metadata commit atomically. Events retain source delivery
+provenance and occurrence time; raw webhook bodies and sender personal fields are
+not persisted. PostgreSQL rejects updates/deletes to events.
+
+Migrations 0009/0010 add notification dedupe and GitHub observations/receipts.
+Development DB is at 0010 with clean drift checks. Tests use an isolated database
+and synthetic HMAC requests, with no live GitHub, Bolna or Caspian calls/messages.
+
+Incident grouping, fingerprints, incident-scoped timeline/get_timeline and owner
+alerts remain pending. Current facts are org/repository scoped, before incident
+association. No CI action or automatic rerun exists. No tunnel is configured; any
+future tunnel must expose only the implemented webhook path, keeping operator
+routes and docs private.
+
+Contracts:
+[signature validation](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries),
+[workflow_run payloads](https://docs.github.com/en/webhooks/webhook-events-and-payloads#workflow_run)
+and [delivery handling](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks).
