@@ -76,3 +76,21 @@ class VoiceTurn(Base):
     reply: Mapped[str | None] = mapped_column(Text)
     reason: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class VoiceWebhookEvent(Base):
+    """Minimal durable status receipt; no transcript or extraction retention."""
+
+    __tablename__ = "voice_webhook_events"
+    __table_args__ = (
+        UniqueConstraint("execution_id", "status", name="uq_voice_webhook_execution_status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    voice_call_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("voice_calls.id"))
+    execution_id: Mapped[uuid.UUID] = mapped_column()
+    status: Mapped[str] = mapped_column(String(32))
+    payload_hash: Mapped[str] = mapped_column(String(64))
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

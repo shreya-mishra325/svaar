@@ -48,7 +48,8 @@ class Settings(BaseSettings):
     caspian_telegram_connection_id: str | None = Field(default=None, repr=False)
     caspian_telegram_address: str | None = Field(default=None, repr=False)
 
-    # Optional standalone Bolna adapter; no automatic calls or voice routes.
+    # Optional Bolna adapter and independent status ingress; no automatic calls.
+    voice_status_secret: SecretStr | None = None
     bolna_api_key: SecretStr | None = None
     bolna_agent_id: uuid.UUID | None = None
 
@@ -80,6 +81,7 @@ class Settings(BaseSettings):
         return value
 
     @field_validator(
+        "voice_status_secret",
         "operator_token",
         "github_webhook_secret",
         "bolna_api_key",
@@ -101,7 +103,7 @@ class Settings(BaseSettings):
             return None
         return value
 
-    @field_validator("operator_token", "github_webhook_secret")
+    @field_validator("operator_token", "github_webhook_secret", "voice_status_secret")
     @classmethod
     def validate_token_strength(cls, value: SecretStr | None) -> SecretStr | None:
         """Reject short bearer tokens that could be guessed."""

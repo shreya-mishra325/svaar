@@ -8,6 +8,7 @@ No live account or turn-reference delivery is established by this adapter.
 
 import re
 import uuid
+from dataclasses import dataclass
 from typing import Literal
 
 import httpx
@@ -36,6 +37,46 @@ class _Execution(BaseModel):
     id: uuid.UUID
     agent_id: uuid.UUID
     status: str = Field(min_length=1, max_length=32)
+
+
+class _Concurrency(BaseModel):
+    model_config = ConfigDict(extra="ignore", hide_input_in_errors=True)
+    max: int = Field(strict=True, ge=0)
+    current: int = Field(strict=True, ge=0)
+
+
+class _Account(BaseModel):
+    model_config = ConfigDict(extra="ignore", hide_input_in_errors=True)
+    wallet: float = Field(allow_inf_nan=False)
+    concurrency: _Concurrency
+
+
+class _Agent(BaseModel):
+    model_config = ConfigDict(extra="ignore", hide_input_in_errors=True)
+    id: uuid.UUID
+    agent_status: str
+    tasks: list[dict[str, object]]
+
+
+@dataclass(frozen=True)
+class BolnaReadiness:
+    """Sanitized GET-only account checks, never proof of working turn delivery."""
+
+    wallet_positive: bool
+    concurrency_available: bool
+    agent_processed: bool
+    conversation_task_present: bool
+    turn_delivery_verified: bool = False
+
+    @property
+    def ready(self) -> bool:
+        """Account capacity and processed agent only; no call was placed."""
+        return (
+            self.wallet_positive
+            and self.concurrency_available
+            and self.agent_processed
+            and self.conversation_task_present
+        )
 
 
 class BolnaClient:
@@ -70,6 +111,33 @@ class BolnaClient:
     def close(self) -> None:
         """Release the HTTP client."""
         self._client.close()
+
+    def readiness(self) -> BolnaReadiness:
+        """GET /user/me and /v2/agent/{id}; discard identities and balances.
+
+        Contracts: https://www.bolna.ai/docs/api-reference/user/info
+        https://www.bolna.ai/docs/api-reference/agent/v2/get
+        No call, configuration mutation or conversation delivery is attempted.
+        """
+        try:
+            account_response = self._client.get("user/me")
+            account_response.raise_for_status()
+            account = _Account.model_validate(account_response.json())
+            agent_response = self._client.get("v2/agent/" + str(self.agent_id))
+            agent_response.raise_for_status()
+            agent = _Agent.model_validate(agent_response.json())
+            if agent.id != self.agent_id:
+                raise ValueError("Agent mismatch")
+        except (httpx.HTTPError, ValueError, ValidationError):
+            raise VoiceProviderUnavailableError("Bolna readiness could not be verified") from None
+        return BolnaReadiness(
+            wallet_positive=account.wallet > 0,
+            concurrency_available=account.concurrency.current < account.concurrency.max,
+            agent_processed=agent.agent_status == "processed",
+            conversation_task_present=any(
+                task.get("task_type") == "conversation" for task in agent.tasks
+            ),
+        )
 
     def place_call(self, phone: str, call_ref: str) -> CallReceipt:
         """POST once, with provider auto-retries explicitly disabled.

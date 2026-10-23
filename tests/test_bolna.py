@@ -191,3 +191,72 @@ def test_settings_optional_and_client_construction_does_not_call_provider(settin
     )
     with pytest.raises(ValidationError):
         Settings(_env_file=None, database_url=settings.database_url, bolna_agent_id="not-a-uuid")
+
+
+@pytest.mark.parametrize(
+    "change",
+    [None, "wallet", "capacity", "processing", "task", "agent", "http", "json", "schema"],
+)
+def test_readiness_get_only_and_scoped(change):
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        assert request.method == "GET"
+        assert request.headers["Authorization"] == "Bearer private-key"
+        if request.url.path == "/user/me":
+            body = {
+                "wallet": 0 if change == "wallet" else 5,
+                "concurrency": {"max": 10, "current": 10 if change == "capacity" else 0},
+                "email": "private-email",
+            }
+            if change == "http":
+                return httpx.Response(401, json={"error": "private-key"})
+            if change == "json":
+                return httpx.Response(200, text="private-invalid-json")
+            if change == "schema":
+                body["wallet"] = "private-invalid-wallet"
+            return httpx.Response(200, json=body)
+        assert request.url.path == "/v2/agent/" + str(AGENT)
+        return httpx.Response(
+            200,
+            json={
+                "id": str(uuid.uuid4() if change == "agent" else AGENT),
+                "agent_status": "processing" if change == "processing" else "processed",
+                "tasks": [] if change == "task" else [{"task_type": "conversation"}],
+                "agent_prompts": {"private": "private-prompt"},
+            },
+        )
+
+    provider = client(handle)
+    try:
+        if change in {"agent", "http", "json", "schema"}:
+            with pytest.raises(VoiceProviderUnavailableError) as exc:
+                provider.readiness()
+            assert "private" not in str(exc.value)
+        else:
+            result = provider.readiness()
+            assert result.ready is (change is None)
+            assert not result.turn_delivery_verified
+            assert "private" not in repr(result)
+        assert len(requests) == (1 if change in {"http", "json", "schema"} else 2)
+    finally:
+        provider.close()
+
+
+def test_readiness_timeout_has_no_retry():
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        raise httpx.ReadTimeout("private-detail")
+
+    provider = client(handle)
+    try:
+        with pytest.raises(
+            VoiceProviderUnavailableError, match="^Bolna readiness could not be verified$"
+        ):
+            provider.readiness()
+        assert len(requests) == 1
+    finally:
+        provider.close()

@@ -52,6 +52,7 @@ DOMAIN_TABLES = (
     "webhook_deliveries",
     "events",
     "repo_mappings",
+    "voice_webhook_events",
     "voice_turns",
     "voice_calls",
     "phone_challenges",
