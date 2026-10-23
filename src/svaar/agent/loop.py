@@ -139,7 +139,7 @@ class AgentLoop:
                 for proposal in reply.tools:
                     self._check_deadline(deadline)
                     arguments = proposal.arguments
-                    if proposal.name == "confirm_action":
+                    if proposal.name in {"confirm_action", "verify_phone_code"}:
                         # A model's invented/transformed nonce is never confirmation.
                         arguments = {"code": text}
                     result = self.dispatcher.dispatch(session, context, proposal.name, arguments)

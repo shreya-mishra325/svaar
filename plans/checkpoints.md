@@ -154,8 +154,10 @@ Target: Oct 20 to 21. Prerequisites: identity/action gate and selected transport
   recipient recheck, concurrent claiming, queued receipts and unknown outcomes.
   Live outbound acceptance and gateway worker startup remain pending.
 - [ ] Implement and inject TurnRunner without agent/voice implementation imports.
-  AgentLoop exists and API composition is optional; trusted call-ID resolution
-  and the run_turn binding are not implemented.
+  Internal VoiceRuntime is injected as app.state.voice_turn_runner through
+  VoiceAgentExecutor, sharing the existing AgentLoop. Server-owned call context,
+  verified-phone rechecks, per-call memory and durable indexed replies are tested.
+  Bolna call-reference mapping and live acceptance remain pending (A-013).
 - [ ] Integrate transcript usability, intent routing and deterministic mission limits.
   Core gates and mission checks have mocked coverage. Live Jev, call binding and
   transport wiring remain pending; unconfigured voice gates request clarification.
@@ -222,7 +224,7 @@ format and Compose validation passed. Test migration 0004 -> 0003 -> 0004 and
 drift checks passed; development DB is 0004. The A-004 warning remains. No live
 gateway process, outbound messages, model requests or calls were started.
 Remaining Phase 2 acceptance: live channel flow under the approved address policy,
-trusted call TurnRunner composition, real handler latency and operator recovery.
+Bolna call-reference/turn-index mapping, real handler latency and operator recovery.
 
 ## Phase 3: Mission-bound voice transport
 
@@ -230,9 +232,18 @@ Target: Oct 22 to 23. Prerequisite: shared runner and identity/action boundaries
 
 - [ ] Phase complete.
 - [ ] Implement outbound call intent/state and authenticated Bolna adapter.
+  BolnaClient and an internal CallService now have mocked HTTP/PostgreSQL coverage.
+  Placement markers, acceptance receipts and final-status reconciliation exist.
+  Live account readiness, authorized call and production caller wiring remain
+  pending; this is not an enabled dialer (A-014).
 - [ ] Implement only the selected turn route with per-call reference binding.
 - [ ] Persist/idempotently reuse replies and deduplicate status callbacks.
 - [ ] Implement the narrow phone_verify challenge before ordinary call missions.
+  Internal challenge issuance, exact-code tool, pending-number call exception
+  and shared-runner verification now have PostgreSQL/fake-provider coverage.
+  Private /verify_phone command issuance, durable code delivery and pending call
+  preparation are now wired and tested with fake providers. An authorized real
+  verification call and authenticated Bolna routes remain pending (A-015).
 - [ ] Enforce separate voice credentials, status secret and trustworthy IP checks.
 - [ ] Implement fixed timeout/error replies, outbox fallback and transcript retention.
 - [ ] Restrict tunnel ingress to implemented external routes; keep operator/docs local.
@@ -241,7 +252,37 @@ Exit check: an authorized real call verifies the intended phone; a spoken questi
 reaches the shared agent; retries do not repeat effects; completed is processed
 once. Failed calls cannot create contradictory evidence. Required checks pass.
 
-Evidence: Pending. Contract blocker: A-002.
+Evidence on 2026-10-23 (partial, Phase 3 remains incomplete):
+Verified public Bolna call, execution and auto-retry documentation. Implemented
+voice/{provider,bolna,calls}.py and migration 0006; active optional
+SVAAR_BOLNA_API_KEY / SVAAR_BOLNA_AGENT_ID settings are blank in .env.example.
+Client construction makes no request. Existing local credentials were not read.
+
+A pending ordinary call must already have server-owned organization, principal,
+mission and verified phone binding. Placement rechecks those before committing
+placing; concurrent/repeated invocations cannot send another POST for that intent.
+High-entropy references are passed in user_data; only their hashes are stored.
+Explicit rejection becomes failed; timeout, invalid acceptance, server failure or
+unexpected placement error becomes unknown. Interrupted placing requires review.
+Provider auto-retries are disabled. No automatic local placement retries exist.
+
+Read-only execution reconciliation validates execution and agent IDs. Stale
+progress cannot reopen an answered/final call. call-disconnected blocks turns
+while awaiting completion; terminal status closes the call. No claim/evidence
+state is derived here. Transcript and extraction payloads are not persisted by
+this minimal receipt adapter.
+
+Verification: 321 tests passed (45 new), Ruff lint/format passed, migration drift
+check and test-only 0006 -> 0005 -> 0006 round trip passed. The initial migration
+test caught an Alembic naming-convention double prefix; corrected with op.f and
+the complete suite then passed. Existing A-004 warning remains. Development
+migration was not applied. No live authenticated Bolna request, message or call
+was made. No new dependency or service was added.
+
+Remaining: account readiness, phone_verify challenge, authenticated turn/status
+routes, verified call-reference/turn-index delivery, callback dedupe, notification
+outbox and real authorized call. CallService is internal only; no action handler,
+API, application lifespan or job starts it. Contract blockers: A-002 and A-014.
 
 ## Phase 4: CI ingestion and incident timeline
 
@@ -358,3 +399,102 @@ filtering and generic rejection of unauthenticated transport input remain enforc
 Mutable username changes or reassignment can affect bindings; this is an accepted
 MVP limitation, not a verified immutable-ID guarantee. No live gateway, messages
 or calls were started for this change. Live channel acceptance remains pending.
+
+### Phase 2 internal voice runner evidence, 2026-10-23
+
+Implemented voice/{models,runtime}.py, agent/voice_runner.py, migration 0005,
+TurnRunner contract extension and application lifecycle injection. Agent and voice
+implementations do not import each other; application composition joins them.
+Ordinary active calls resolve their organization, principal, mission and verified
+phone binding from server-owned rows. No call creation/activation endpoint exists.
+The pending phone_verify challenge is deliberately not accepted by this runtime.
+
+Stable zero-based turn_index is required for execution. Retries reuse the saved
+reply; changed payloads, missing/gapped indices and unknown/closed/unverified calls
+are refused. Session advisory locks survive dispatcher commits. Processing/unknown
+turns never replay after a crash; unknown turns block later work pending review.
+History is scoped to the call and bounded to six completed turns, with codes and
+unusable speech excluded from later input history.
+
+Verification: 276 tests passed against isolated PostgreSQL (20 new voice tests);
+Ruff lint and formatting passed. Migration drift and test-only 0005 -> 0004 ->
+0005 round trip passed. Existing Starlette warning remains. Docker Desktop and
+the project database were started for verification. Current Compose published
+port is 5433; process-local test configuration used that actual port. No .env
+values were edited. Development database migration 0005 was not applied.
+
+Still pending: Bolna authentication/reference/index delivery, phone challenge,
+provider callbacks, chat notification delivery for fallback/confirmation, real
+handler latency and live chat/voice acceptance. The inherited fixed fallback
+mentions messaging, but this internal runner does not yet enqueue such a message.
+No provider requests, messages or calls were made. Phase 2 remains incomplete.
+
+### Phase 3 internal phone verification evidence, 2026-10-23
+
+Implemented identity/{phones,phone_tools}.py and PhoneChallenge storage, registered
+verify_phone_code through actions, added a server-resolved challenge identifier
+to ToolContext, and extended internal call placement/runtime for phone_verify.
+Migration 0007 enforces mutually exclusive contexts: ordinary calls require a
+verified-binding reference; verification calls require a challenge and no binding.
+
+Issuance is internal and requires an existing verified non-phone identity.
+Codes are six ASCII digits, stored only as salted scrypt hashes, with ten-minute
+expiry, three mismatch attempts and one-minute resend cooldown per principal and
+target. New challenges cancel prior pending challenges for that principal.
+Pending numbers do not create or reserve a globally owned phone binding.
+Exact matching creates/verifies only the intended principal's phone binding.
+Model proposals cannot replace the raw caller transcript or select the challenge.
+
+Only phone_verify can dial the pending number; its sole offered tool is
+verify_phone_code. Ordinary missions still require verified phones. Usability and
+intent gates remain enforced. The internal call closes on verification/lockout;
+saved indexed replies remain reusable without repeating tools. Verification
+utterances and replies are not replayed as later model history.
+
+Verification: 344 tests passed (23 new), with real isolated PostgreSQL and fake
+models/providers; Ruff lint/format and test-only 0007 -> 0006 -> 0007 migration
+round trip/drift checks passed. Existing Starlette warning remains. Development
+migrations were not applied. No new dependencies, .env edits, live provider
+requests, messages or calls. Prior ordinary-call-only notes are historical and
+superseded for this narrow verification exception.
+
+Remaining: private chat code delivery and issuance wiring, authenticated provider
+turn/status routes, verified call-reference/turn-index delivery, callback dedupe,
+fallback notifications and authorized live acceptance. No Bolna route or tunnel
+was added based on assumed payload fields. Phase 3 remains incomplete.
+
+### Phase 3 private challenge delivery evidence, 2026-10-23
+
+Added the private identity-enrollment command /verify_phone <E.164 number> to
+ChatRuntime, alongside /join. It requires transport-authenticated enrollment,
+bypasses inference/history and creates the challenge, pending verification call,
+secret outbox message and processed inbound marker in one transaction.
+Duplicate messages do not reissue codes. Invalid input/cooldown failures produce
+safe durable replies without creating extra challenges or call intents.
+
+Agent receives an injected preparation callback; it never imports voice.
+Application and gateway composition supply the callback. It creates only a pending
+call intent, never a provider request or automatic dial. Replies explicitly say
+the call must be started separately and the phone remains unverified.
+
+Migration 0008 links code outbox entries to their challenges. Sender rechecks
+recipient ownership and active challenge immediately before POST. Expired,
+canceled, locked, verified or superseded code deliveries are withheld. The salted
+hash remains in identity storage; the delivery code exists in the private outbox
+only, never conversation history or model requests. Unknown sends never retry.
+Downgrade refuses unresolved code deliveries rather than dropping their guards.
+
+Verification: 359 tests passed (15 new chat/phone integration tests), Ruff
+lint/format passed, test-only 0008 -> 0007 -> 0008 round trip and drift checks
+passed. Tests cover enrollment -> code outbox -> fake call placement/receipt ->
+shared-loop exact voice verification, duplicates, rollback, invalid/untrusted
+input, cooldown, stale-code withholding and downgrade refusal. The existing
+Starlette warning remains. Development database was upgraded through 0008 with
+a clean migration drift check, superseding earlier unapplied-migration notes.
+Actual Compose host port remains 5433; no .env values were edited.
+
+No live messages, calls, provider requests, gateway process or tunnel were started.
+Remaining: authenticated Bolna turn/status routes and call-reference/index contract,
+callback dedupe, call scheduling/readiness, live Jev or approved voice-gate design,
+fallback/confirmation notifications and explicitly authorized real acceptance.
+Phase 3 remains incomplete.

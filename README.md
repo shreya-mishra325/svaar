@@ -485,3 +485,125 @@ Compose configuration. Container build and startup should also be checked locall
 - Refresh `uv.lock` with `uv lock` after approved dependency changes.
 - Work on feature branches. Check for redundant routes, folders and naming drift before merging.
 - Git operations and submission-time document cleanup are performed manually by the team.
+
+### Internal shared voice runner
+
+Application composition exposes app.state.voice_turn_runner when the LLM is
+configured. VoiceRuntime owns persistence and calls the injected VoiceAgentExecutor;
+agent and voice implementations never import each other. Both chat and voice use
+the same AgentLoop, registry and action gates. No Bolna route or real call is enabled.
+
+Migration 0005 adds ordinary voice_calls and voice_turns. Internal calls must be
+active and tied to the intended organization, principal and still-verified phone
+binding. The internal phone_verify challenge exception is described below; live code delivery remains pending.
+The runtime accepts a server-resolved internal call ID, text and stable zero-based
+turn_index. Missing/gapped indices or changed duplicate payloads refuse execution;
+completed retries reuse their saved reply. Text alone is never a retry key.
+A per-call advisory lock survives action commits. Processing/unknown outcomes
+require review and never repeat tools automatically.
+
+History is isolated per call and limited to six previous turns; confirmation
+inputs and unusable speech are excluded from later user history. Existing voice
+usability, intent, mission and timeout behavior runs through the shared agent.
+The runner is tested with real PostgreSQL and fake providers. Before live use,
+verify Bolna authentication, call-reference mapping and stable turn indices, add
+the phone challenge and wire fallback/confirmation notifications. The inherited
+fallback mentions messaging, but notification delivery is not implemented here.
+See plans/anomaly.md A-013. Run alembic upgrade head before using the new schema.
+
+### Bolna outbound adapter and internal call lifecycle
+
+BolnaClient implements documented call placement and execution lookup using
+existing synchronous httpx. Optional SVAAR_BOLNA_API_KEY and
+SVAAR_BOLNA_AGENT_ID settings are required by explicit from_settings construction.
+No client, call service, call job or network request starts automatically; these
+credentials are not yet forwarded by Compose. No provider SDK is required.
+
+CallService works on an existing server-owned pending ordinary call. Before
+placement it checks organization, principal and verified phone ownership. It
+commits placing before the single POST, stores only a hash of the generated
+private call reference, and records queued acceptance with the execution ID.
+Queued is not proof of an answered call. Explicit rejection is failed; ambiguous
+placement is unknown. Neither state is automatically redialed. A crash leaving
+placing requires review. Provider auto-retries are explicitly disabled.
+
+Execution reads validate the receipt's execution and agent IDs. Progress cannot
+regress or reopen a final call. call-disconnected blocks further turns while
+waiting for the final result; completed and hard-failure terminal statuses close
+the call. These statuses do not establish or contradict an incident claim.
+This adapter does not persist transcripts or provider extraction payloads.
+
+Migration 0006 adds placement/receipt state. Apply migrations before internal use;
+development migrations were not applied by these checks. Downgrade requires new
+placement states to be reconciled rather than resetting them to pending.
+Phone verification, account readiness, authenticated turn/status routes,
+call-reference/turn-index delivery and fallback notification delivery remain
+pending. No production entrypoint invokes CallService; future business callers
+must retain action authorization and mission-specific scheduling/limits.
+
+Contracts checked on 2026-10-23:
+[call placement](https://www.bolna.ai/docs/api-reference/calls/make),
+[execution lookup](https://www.bolna.ai/docs/api-reference/executions/get_execution)
+and [provider retry configuration](https://www.bolna.ai/docs/outbound/auto-retry).
+Tests use synthetic HTTP and fake providers; no live Bolna call is claimed.
+
+### Internal phone verification challenge
+
+Phone challenges are owned by identity. Internal issuance requires an enrolled
+principal with a verified non-phone channel and returns a six-digit code once
+for private chat delivery. Only a salted scrypt hash is stored. Challenges expire
+after ten minutes, lock after three failed comparisons and enforce a one-minute
+resend cooldown per principal and target. Reissue cancels prior pending challenges.
+Pending numbers do not create or reserve phone bindings.
+
+Migration 0007 adds phone_challenges and an explicit pending-challenge call
+context. create_phone_verification_call creates only an internal intent, without
+dialing. CallService may dial that exact pending number only for phone_verify.
+Ordinary missions still require a verified phone binding. Verification calls offer
+only verify_phone_code through the shared actions dispatcher and usability/intent
+gates. The challenge comes from trusted context; the code comparison uses the
+caller transcript, never a model-reconstructed code. Six ASCII digits must match
+exactly after removing spaces/hyphens; number words are not guessed.
+
+A successful comparison creates/verifies only that principal's number. The runner
+closes finished verification calls and returns saved replies on indexed retries.
+Verification text and replies never enter later model history. Core behavior is
+tested with fake inference/providers and real PostgreSQL.
+
+The live flow is still incomplete: no chat issuance command/private code delivery,
+provider turn/status endpoint or real verification call is enabled. Bolna reference
+and retry-index delivery must be verified before exposing a route. No code is sent
+or call placed automatically. Unconfigured Jev continues to request clarification.
+See plans/anomaly.md A-015; development migrations still need applying.
+
+### Request phone verification in private chat
+
+After invite enrollment, the private command is:
+
+```text
+/verify_phone +<your E.164 number>
+```
+
+The configured gateway handles this identity-enrollment command without calling
+the model. Challenge creation, pending call intent, private code outbox and inbound
+dedupe commit together. The six-digit code is delivered through the existing
+outbox, with expiry/supersession and recipient checks before sending. Codes and
+phone-registration commands never enter conversation history or model prompts.
+Identity stores a salted code hash; the private delivery outbox holds the code
+needed for delivery. Unknown sends are not blindly retried.
+
+The reply explicitly states that the verification call must be started separately.
+This prepares a pending intent; it does not enable a dialer, verify the phone,
+place a real call or claim a code was delivered before its receipt. Application
+and gateway composition inject call preparation without imports between agent
+and voice implementations.
+
+An offline integration test covers enrollment, private code delivery, fake Bolna
+placement/status and exact spoken-code verification through the shared action
+gate. No live messaging or calling was performed. Authenticated Bolna routes,
+verified reference/index delivery and authorized real acceptance remain pending.
+
+Development database is migrated through 0008; the isolated test DB passed its
+migration round trip/drift checks. This supersedes earlier unapplied-migration
+notes. Restart running application/gateway processes to load the new code.
+Migration downgrade refuses unresolved private-code deliveries.

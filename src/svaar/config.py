@@ -1,6 +1,7 @@
 """Validated environment configuration; no resources are created on import."""
 
 import math
+import uuid
 from typing import Literal, Self
 
 import httpx
@@ -47,6 +48,10 @@ class Settings(BaseSettings):
     caspian_telegram_connection_id: str | None = Field(default=None, repr=False)
     caspian_telegram_address: str | None = Field(default=None, repr=False)
 
+    # Optional standalone Bolna adapter; no automatic calls or voice routes.
+    bolna_api_key: SecretStr | None = None
+    bolna_agent_id: uuid.UUID | None = None
+
     # Identity and approvals.
     invite_ttl_hours: int = Field(default=72, ge=1, le=720)
     confirmation_ttl_seconds: int = Field(default=600, ge=60, le=3600)
@@ -73,6 +78,8 @@ class Settings(BaseSettings):
 
     @field_validator(
         "operator_token",
+        "bolna_api_key",
+        "bolna_agent_id",
         "channel_transport",
         "llm_api_key",
         "llm_base_url",

@@ -91,6 +91,7 @@ class OutboxMessage(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     inbound_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("inbound_messages.id"), index=True)
+    phone_challenge_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("phone_challenges.id"))
     ordinal: Mapped[int] = mapped_column(Integer)
     body: Mapped[str] = mapped_column(Text)
     state: Mapped[str] = mapped_column(String(16), default="pending", index=True)

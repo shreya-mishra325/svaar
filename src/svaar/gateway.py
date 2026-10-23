@@ -31,6 +31,7 @@ from svaar.config import Settings
 from svaar.db import create_database_engine
 from svaar.decisions.service import DecisionService
 from svaar.logging import configure_logging
+from svaar.voice.calls import prepare_phone_verification_call
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ def _run(settings: Settings) -> int:
         )
         resources.callback(agent.close)
         transport.check_connection()
-        runtime = ChatRuntime(sessions, agent)
+        runtime = ChatRuntime(sessions, agent, prepare_phone_call=prepare_phone_verification_call)
         worker = GatewayWorker(
             sessions,
             runtime,
