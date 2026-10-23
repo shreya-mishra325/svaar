@@ -4,7 +4,15 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from svaar.db import Base
@@ -78,4 +86,27 @@ class Invite(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     used_by_principal_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("principals.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PhoneChallenge(Base):
+    """Pending number and salted code hash; no binding exists until exact verification."""
+
+    __tablename__ = "phone_challenges"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('pending', 'verified', 'locked', 'expired', 'canceled')", name="state_valid"
+        ),
+        CheckConstraint("attempts >= 0 AND attempts <= 3", name="attempts_valid"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id"))
+    principal_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("principals.id"), index=True)
+    phone_number: Mapped[str] = mapped_column(String(32))
+    code_hash: Mapped[str] = mapped_column(String(128))
+    code_salt: Mapped[str] = mapped_column(String(32))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    state: Mapped[str] = mapped_column(String(16), default="pending")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

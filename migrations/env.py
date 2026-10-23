@@ -7,6 +7,7 @@ import svaar.agent.models  # noqa: F401
 import svaar.approvals.models  # noqa: F401
 import svaar.decisions.models  # noqa: F401
 import svaar.identity.models  # noqa: F401
+import svaar.voice.models  # noqa: F401
 from svaar.config import Settings
 from svaar.db import Base, create_database_engine
 from svaar.logging import configure_logging
