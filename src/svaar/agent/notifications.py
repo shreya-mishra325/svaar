@@ -49,7 +49,37 @@ def enqueue_voice_fallback(
     Locking the processed inbound anchor reserves the next outbox ordinal without
     fabricating inbound messages or changing the delivery adapter.
     """
-    key = f"voice-fallback:{call_id}:{turn_index}"
+    return _enqueue_private_followup(
+        session, org_id, principal_id, f"voice-fallback:{call_id}:{turn_index}", FOLLOW_UP
+    )
+
+
+CALL_FAILURE_FOLLOW_UP = (
+    "Your call did not complete. Please continue in this private chat. "
+    "This call outcome does not verify or contradict any claim."
+)
+
+
+def enqueue_call_failure(
+    session: Session,
+    org_id: uuid.UUID,
+    principal_id: uuid.UUID,
+    call_id: uuid.UUID,
+) -> bool:
+    """Queue one private notification per failed call, without a direct send."""
+    return _enqueue_private_followup(
+        session, org_id, principal_id, f"voice-call-failure:{call_id}", CALL_FAILURE_FOLLOW_UP
+    )
+
+
+def _enqueue_private_followup(
+    session: Session,
+    org_id: uuid.UUID,
+    principal_id: uuid.UUID,
+    key: str,
+    body: str,
+) -> bool:
+    """Reuse verified routing and locked outbox ordinal reservation."""
     existing = _existing_notification(session, key, org_id, principal_id)
     if existing is not None:
         return existing
@@ -103,7 +133,7 @@ def enqueue_voice_fallback(
         OutboxMessage(
             inbound_id=anchor.id,
             ordinal=ordinal,
-            body=FOLLOW_UP,
+            body=body,
             notification_key=key,
         )
     )
