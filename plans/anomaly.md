@@ -443,3 +443,65 @@ drift check passed. No live provider requests, messages or calls. Status remains
 open for authenticated provider routes, reference/index delivery, account
 readiness/scheduling, voice decision-provider composition and authorized real
 acceptance. Earlier notes that code delivery was absent are historical.
+
+## A-016: Voice fallback follow-ups wired; live delivery and route ambiguity remain
+
+- Status: Partially resolved, 2026-10-23. Application composition injects an
+  agent-owned outbox callback into VoiceRuntime without cross-imports between
+  agent and voice implementations.
+- Implemented: Unavailable/tool-limited turns and unexpected execution errors queue
+  a generic private follow-up atomically with turn state. Crash-marker retries can
+  queue it without repeating tools. One key per call/turn and locked inbound
+  anchors prevent duplicate notifications/ordinal collisions. Existing outbox
+  receipt handling and uncertain-send policy are reused.
+- Routing: Exactly one existing organization/principal-scoped conversation with
+  a verified sender binding is required. No latest-organization or arbitrary-route
+  guess is made. Missing/ambiguous routes or notification failures use a spoken
+  request to continue in chat; only successfully queued notifications get the
+  queued-follow-up line. Sender rechecks current recipient ownership.
+- Scope: Generic follow-up text never contains caller speech, phone numbers,
+  nonces or claim evidence. Confirmation ticket delivery remains separate/pending.
+  Full eight-second end-to-end latency remains A-009; added DB work is not a
+  proven live timing result. No notification polling service was added.
+- Evidence: Part of 396 passing tests with real PostgreSQL/fake transports,
+  including failure/timeout results, unknown execution, interrupted processing,
+  concurrent ordinals, dedupe, ambiguous routing, revocation and no notification
+  on ordinary clarification/refusal. No live messages were sent.
+
+## A-017: GitHub ingestion exists; incident aggregate and App client remain pending
+
+- Status: Partial Phase 4 implementation verified with synthetic signed payloads.
+- Verified public contracts (2026-10-23):
+  https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries
+  https://docs.github.com/en/webhooks/webhook-events-and-payloads#workflow_run
+  https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks
+- Implemented: POST /api/v1/webhooks/github validates raw-body HMAC with a separate
+  optional 32+ character secret; absent secret returns 503. Body is capped at
+  1 MiB; duplicate JSON keys and non-JSON numeric constants are rejected.
+  Workflow action/status/conclusion, IDs, SHA and timezone-aware occurrence time
+  are validated. Only explicit repo/installation/org mappings can create facts.
+  POST /api/v1/repo-mappings requires the operator token and refuses overwrites.
+- HTTP behavior follows PLAN.md: malformed JSON 400, unsupported events
+  200/handled=false, unmapped repositories rejected with 404 and sanitized logs.
+  Typed payload/header errors use 422; duplicate-ID/content conflicts use 409.
+  Unsupported/unmapped receipts retain their outcome on redelivery. Previously
+  ignored/unmapped IDs are not automatically replayed after adding a mapping.
+- Persistence: Delivery IDs and normalized run-transition keys are separate
+  dedupe boundaries; observations and delivery receipts commit together.
+  events stores source provenance and normalized fields only. PostgreSQL blocks
+  updates/deletes. Arrival order never rewrites source occurrence timestamps.
+- Plan/schema extensions needing awareness: Current events are org/repository
+  observations before an incident aggregate exists. external_key implements the
+  planned stable external_id concept; data is the normalized payload. An incident
+  association is not present yet and must be added without rewriting observed
+  facts. Repo mappings use numeric repository plus installation IDs instead of
+  guessing organization from names. Delivery receipts include outcome/hash/event
+  linkage beyond the plan's minimal columns.
+- Remaining: GitHub App auth/REST client, incident grouping/fingerprints,
+  incident-scoped timeline/get_timeline, owner alerts and live repository
+  acceptance. No CI mutation, rerun, model call or claim inference is performed.
+  No tunnel was configured. The 1 MiB bound may need revisiting for large real
+  workflow payloads; it is an MVP application limit, not GitHub's advertised cap.
+- Evidence: 396 tests passed (37 new across this task); schema drift, test-only
+  0010 -> 0008 -> 0010 round trip, Ruff and Compose passed. Development DB is 0010.
+  No live provider calls or messages and no new dependency/infrastructure.

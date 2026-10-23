@@ -20,14 +20,13 @@ reading order in agent tasks; these documents are not automatically loaded.
 - At phase closure record date, owner if known, changed files, executed checks and
   results, integration status and remaining limitations under that phase.
 
-Current position: Phase 0 is complete for local infrastructure. Phase 1 is in
-progress: its local identity, action gate, confirmation and decision-policy work is
-verified. Phase 2 has a tested shared agent core and a standalone mocked Jev
-adapter. A standalone Caspian Telegram transport and durable chat coordinator/
-outbox now exist. Gateway polling/cursor/health composition is wired with fake-provider
-coverage; live provider activation and voice composition remain pending. Groq probes on Oct 20 and Oct 21 are
-user-reported evidence; Caspian authenticated event access was checked Oct 23.
-Phase 1 and Phase 2 remain incomplete; A-011 is an accepted MVP limitation.
+Current position: Phase 0 is complete. Phase 1 and Phase 2 have tested local
+identity/action/agent foundations but remain incomplete for live provider acceptance.
+Phase 3 has internal call, phone-verification, private code delivery and voice-failure
+notification wiring. Phase 4 now has authenticated GitHub workflow ingress, explicit
+repo mappings and append-only observations, verified with synthetic requests only.
+Incident grouping, timeline tools, owner alerts and live voice acceptance remain
+pending. A-011 is an accepted MVP sender-address limitation.
 
 ## Phase 0: Engineering foundation
 
@@ -246,6 +245,10 @@ Target: Oct 22 to 23. Prerequisite: shared runner and identity/action boundaries
   verification call and authenticated Bolna routes remain pending (A-015).
 - [ ] Enforce separate voice credentials, status secret and trustworthy IP checks.
 - [ ] Implement fixed timeout/error replies, outbox fallback and transcript retention.
+  Core failures now enqueue a deduplicated private chat follow-up through the
+  existing outbox when one verified route exists. Missing/ambiguous routes use
+  an honest spoken fallback. Transcript retention and live acceptance remain
+  pending (A-016).
 - [ ] Restrict tunnel ingress to implemented external routes; keep operator/docs local.
 
 Exit check: an authorized real call verifies the intended phone; a spoken question
@@ -290,8 +293,13 @@ Target: Oct 24 to 25. Prerequisites: scoped identity, chat delivery and incident
 
 - [ ] Phase complete.
 - [ ] Implement GitHub App client and explicit repository-to-organization mapping.
-- [ ] Verify raw-body HMAC, validate payloads and deduplicate delivery IDs.
-- [ ] Persist append-only observed events with provenance and stable external IDs.
+  Explicit repository/installation/org mappings and operator-only creation route
+  exist; GitHub App authentication/REST client remains pending.
+- [x] Verify raw-body HMAC, validate payloads and deduplicate delivery IDs.
+  Scope: documented contract and synthetic signed HTTP/PostgreSQL tests, not a
+  live GitHub delivery.
+- [x] Persist append-only observed events with provenance and stable external IDs.
+  Scope: normalized workflow_run observations; incident linkage remains pending.
 - [ ] Implement failure fingerprints and an ordered incident timeline.
 - [ ] Deliver owner alerts through the outbox; do not automatically rerun workflows.
 
@@ -299,7 +307,24 @@ Exit check: a failing demo workflow produces one scoped incident/chat alert and
 its ordered timeline is available through chat and voice. Signature, unmapped-repo
 and duplicate-delivery tests pass alongside required quality checks.
 
-Evidence: Pending.
+Evidence on 2026-10-23 (partial): migrations 0009 and 0010 add outbox notification
+dedupe plus repo_mappings, webhook_deliveries and events. HMAC is checked over exact
+bounded bytes before JSON parsing; database work is offloaded from the async
+handler. Only mapped repository/installation pairs create normalized observations.
+Delivery IDs and stable run-transition keys prevent repeated effects. Conflicts
+return 409, malformed JSON 400, unsupported events 200/handled=false; unmapped
+repositories are rejected/logged without payload data. PostgreSQL blocks updates
+and deletes of observed events. Raw sender payloads/transcripts are not stored.
+
+Verification: 396 tests passed (37 new), Ruff lint/format and Compose config passed.
+Isolated test DB round trip 0010 -> 0008 -> 0010 and drift checks passed.
+Development DB upgraded to 0010 with clean drift check. Existing Starlette warning
+remains. No live provider calls, messages, GitHub requests or tunnel were started.
+
+Remaining Phase 4 work: GitHub App client, failure fingerprinting, incident
+aggregation/linkage, scoped timeline and get_timeline, owner alerts and live
+repository acceptance. See A-017 for schema extensions and the minimal ingress
+scope. No automatic workflow reruns exist.
 
 ## Phase 5: Evidence-backed claims and guarded escalation
 
