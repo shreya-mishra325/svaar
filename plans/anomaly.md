@@ -328,3 +328,118 @@ filtering and generic rejection of unauthenticated transport input remain enforc
 Mutable username changes or reassignment can affect bindings; this is an accepted
 MVP limitation, not a verified immutable-ID guarantee. No live gateway, messages
 or calls were started for this change. Live channel acceptance remains pending.
+
+## A-013: Internal voice runner requires transport turn identity and notification wiring
+
+- Status: Open; internal implementation tested, live transport not implemented.
+- Evidence (2026-10-23): TurnRunner previously accepted only call_id/text. That
+  cannot distinguish a retry from the same utterance spoken again. Added an
+  optional keyword turn_index; its absence refuses execution. The transport must
+  provide a stable zero-based index after authentication and call-reference
+  resolution. No Bolna request field or index algorithm is assumed verified.
+- Implemented: Ordinary server-owned active voice_calls bound to a verified phone,
+  organization, principal and fixed mission; durable indexed voice_turns and
+  bounded private history. Only application composition imports both voice and
+  agent. Unknown execution outcomes do not retry. Twenty new tests cover the real
+  action gates, fake usability/intent inference, duplicate/conflicting requests,
+  identity isolation, unusable speech, unavailable model, concurrent processing,
+  crashes and history redaction. Full suite: 276 passed.
+- Deliberate scope: Migration 0005 is a minimal ordinary-call schema, not the full
+  planned provider/callback/transcript schema. phone_verify is excluded until its
+  pending challenge and exact-number binding exist. No production call creation,
+  activation or provider route was added. Migration was tested on svaar_test only.
+- Remaining: Verify provider call-reference/index delivery before exposing a route.
+  Add fallback chat notifications and secret confirmation delivery through a
+  durable outbox. Existing fallback wording mentions messaging, but no such
+  notification is delivered by this runner yet. Unexpected secret tickets fail
+  closed rather than being spoken or silently treated as delivered.
+- Owner: Unassigned.
+
+## A-014: Bolna placement adapter verified from docs, live transport still pending
+
+- Status: Open; implemented internal adapter/service, not live call acceptance.
+- Evidence (2026-10-23): Official POST /call returns queued plus execution_id;
+  GET /executions/{execution_id} exposes agent ID and lifecycle status. Explicit
+  retry_config.enabled=false disables provider auto-retries. Sources:
+  https://www.bolna.ai/docs/api-reference/calls/make
+  https://www.bolna.ai/docs/api-reference/executions/get_execution
+  https://www.bolna.ai/docs/outbound/auto-retry
+- Implemented: BolnaClient with fixed HTTPS host, Bearer SecretStr, bounded HTTP,
+  redirects/proxy inheritance disabled, no retries and sanitized errors.
+  Internal CallService claims a scoped pending intent before POST, rechecks
+  verified phone ownership, hashes private call references and records receipt
+  identity/status. Unknown placement never redials. Read reconciliation rejects
+  mismatched IDs and stale progress; final calls cannot reopen.
+- Verification: 321 tests passed with synthetic HTTP/fake providers and isolated
+  PostgreSQL. Migration 0006 drift and empty-test-database round trip passed.
+  Initial migration failed due to a double-prefixed constraint name; op.f fixed
+  the unapplied migration and all verification passed afterwards.
+- Remaining: Live account readiness was not checked. The public OpenAPI URL
+  returned 404, so no user/me response schema was invented. No account smoke,
+  provider turn-reference/index delivery or chosen turn mode is verified.
+  Phone challenge, per-mission scheduling/limits, provider routes, notification
+  delivery and authenticated callbacks remain pending. CallService is not exposed
+  to models, API routes or a scheduler; business callers must use the action gate.
+- Schema extension: 0006 adds placing/queued/failed/unknown states and nullable
+  receipt/reference-hash fields. Downgrade refuses unsupported placement states;
+  operators must reconcile those rather than reset to pending and risk redialing.
+  Progress statuses are monotonic under disabled retry/rescheduling; rescheduling
+  is not supported by the MVP service.
+- Outcome: No live authenticated provider requests, calls, messages or purchases.
+  Bolna settings activate only explicit client construction; they are not forwarded
+  through Compose until a process composes the provider.
+- Owner: Unassigned.
+
+## A-015: Phone verification core exists; private delivery and live transport remain
+
+- Status: Open; internal challenge/mission implementation verified offline only.
+- Evidence (2026-10-23): Added identity-owned phone_challenges, salted scrypt code
+  hashes, ten-minute expiry, three failed-attempt limit, principal/number cooldown
+  and supersession. Pending numbers do not reserve phone bindings. A correct
+  exact ASCII-digit comparison creates the intended phone binding atomically.
+  Spaces/hyphens may separate digits; words, guessed substrings and Unicode digit
+  substitutions do not verify.
+- Mission exception: phone_verify call intents reference exactly one pending
+  challenge, intended organization/principal and number. They have no ordinary
+  verified-phone binding. Ordinary call contexts cannot carry a pending challenge.
+  Only verify_phone_code is offered and all tool execution passes actions.
+  Caller transcript overrides model-proposed code; model-selected challenge IDs
+  and target numbers are not accepted as tool arguments.
+- Verification: 344 tests passed (23 new) with real PostgreSQL/fake providers,
+  including exact/leading-zero codes, expiry/attempts, cooldown/supersession,
+  ownership, concurrent verification, pending-number placement, unusable speech,
+  invented-code rejection, mission boundaries, saved replies and code-free history.
+  Ruff and test-only migration 0007 round trip/drift checks passed.
+- Remaining: IssuedPhoneChallenge returns the secret code once to an internal
+  coordinator, but no live chat issuance command or durable private code delivery
+  is wired yet. No provider turn/status route is exposed; Bolna reference/index
+  delivery, auth, callback dedupe and account readiness remain unverified.
+  Unconfigured Jev still requests clarification; this is not a working live
+  verification demo. No pending phone is ever marked verified on call failure.
+- Scope: The schema/runner exception supersedes A-013/A-014 notes that excluded
+  phone_verify. The complete phase deliverable remains unticked until private
+  delivery and the authorized real call work. Development migrations are pending.
+- Owner: Unassigned.
+
+### A-015 update: private issuance and delivery wired, 2026-10-23
+
+Private chat code issuance/delivery is no longer an unimplemented coordinator.
+ChatRuntime handles /verify_phone only after authenticated enrollment and
+atomically persists a challenge, pending call intent, private code outbox and
+inbound dedupe. The command and reply never enter inference/history. Application
+and gateway inject a voice callback without agent/voice implementation imports.
+No automatic call placement or call-scheduling policy was enabled.
+
+OutboxMessage.phone_challenge_id (migration 0008) lets the sender recheck challenge
+validity and recipient scope before sending. Stale or superseded codes fail
+closed. Codes are plaintext only in the private delivery outbox; identity keeps a
+salted scrypt hash. Uncertain sends remain non-retryable. Downgrade refuses to
+discard guards while linked deliveries are pending/sending/queued/unknown.
+
+Evidence: 359 tests passed, including 15 new integrated chat/private delivery/fake
+call/shared-agent verification tests and migration downgrade refusal. Ruff and
+test-only migration round trip/drift passed. Development DB upgraded to 0008 and
+drift check passed. No live provider requests, messages or calls. Status remains
+open for authenticated provider routes, reference/index delivery, account
+readiness/scheduling, voice decision-provider composition and authorized real
+acceptance. Earlier notes that code delivery was absent are historical.
