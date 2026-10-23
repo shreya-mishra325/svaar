@@ -53,6 +53,7 @@ services:
       # Operator routes only; empty means operator routes answer 503.
       SVAAR_OPERATOR_TOKEN: ${SVAAR_OPERATOR_TOKEN:-}
       SVAAR_INVITE_TTL_HOURS: ${SVAAR_INVITE_TTL_HOURS:-72}
+      SVAAR_VOICE_STATUS_SECRET: ${SVAAR_VOICE_STATUS_SECRET:-}
       SVAAR_GITHUB_WEBHOOK_SECRET: ${SVAAR_GITHUB_WEBHOOK_SECRET:-}
     ports:
       - "127.0.0.1:8000:8000"

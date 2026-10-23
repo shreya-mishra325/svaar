@@ -1,47 +1,451 @@
 # Svaar phase checkpoints
 
-Last reviewed: 2026-10-23 (Asia/Calcutta).
+Last reviewed: 2026-10-24 (Asia/Calcutta).
 
 ## How to use this checklist
 
-Read `rules.md`, `PLAN.md`, this file and `anomaly.md` before starting a task.
-PLAN.md defines requirements; this file tracks implementation phase by phase.
-Inspect current code and local edits before relying on a checkbox. Include this
-reading order in agent tasks; these documents are not automatically loaded.
+Read rules.md, PLAN.md, this file and anomaly.md before starting work.
+PLAN.md remains the requirements source. Phase numbers, targets and exit criteria
+are unchanged. A target date is not evidence of completion.
 
-- `[x]` means implemented and verified for the stated scope, not merely scaffolded.
-- `[ ]` means incomplete, unverified or blocked. Reference blockers by anomaly ID.
-- Tick individual deliverables as they pass. Tick a phase-complete box only after
-  every required deliverable and its exit check pass.
-- Optional items follow PLAN.md's cut order. If deferred, leave them unticked and
-  record the team's decision; an omission is not implemented work.
-- Dates below are plan targets, not evidence of completion. Independent tasks may
-  proceed in parallel where dependencies and ownership boundaries permit.
-- At phase closure record date, owner if known, changed files, executed checks and
-  results, integration status and remaining limitations under that phase.
+Every phase separates three kinds of progress:
 
-Current position: Phase 0 is complete. Phase 1 and Phase 2 have tested local
-identity/action/agent foundations but remain incomplete for live provider acceptance.
-Phase 3 has internal call, phone-verification, private code delivery and voice-failure
-notification wiring. Phase 4 now has authenticated GitHub workflow ingress, explicit
-repo mappings and append-only observations, verified with synthetic requests only.
-Incident grouping, timeline tools, owner alerts and live voice acceptance remain
-pending. A-011 is an accepted MVP sender-address limitation.
+- **Implementation:** the stated code or artifact exists for the exact scope shown.
+- **Offline verification:** the stated checks passed with isolated state and fake
+  providers. This does not establish live account access, calls or delivery.
+- **Live acceptance:** the required real integration or final user flow was verified.
+  Credentials saved locally are configuration, not live acceptance.
+
+[x] applies only to that specific item. Keep partially implemented items split,
+rather than hiding missing software inside a live-provider blocker. Phase complete
+requires every mandatory implementation, verification and acceptance item plus the
+original exit check. Optional cuts stay unticked with a recorded team decision.
+Never infer completion from scaffolding, a mock, a date or a configured key.
+
+Record dated evidence, files, results, integration status and limitations. Preserve
+earlier evidence in the history below; its old remaining-work notes are historical.
+Agents never stage, commit, push or change Git state. Live messages/calls require
+explicit authorization covering the action and target.
+
+## Current position
+
+Latest implementation verification: **476 tests passed on 2026-10-24**, plus
+Ruff lint/format and alembic check against the isolated PostgreSQL test database.
+The database container is healthy. Migration 0011 upgrade/check passed on the
+local development database; downgrade/upgrade/check passed on the isolated test
+database. Compose validation passed. The existing Starlette warning is A-004.
+
+| Phase | Implementation | Offline verification | Live acceptance |
+| --- | --- | --- | --- |
+| 0: Foundation | Complete | Passed | Required local startup verified |
+| 1: Contracts and safety | Safety core done; provider composition partial | Core and adapter mocks passed | Provider checks incomplete |
+| 2: Shared runtime | Chat/gateway/internal voice core done; external voice binding pending | Core and persistence checks passed | Complete chat/voice flow pending |
+| 3: Voice transport | Call/challenge/follow-up core and status receipts done; turn bridge pending | Implemented scope passed | Real verification call pending |
+| 4: CI and timeline | Signed ingress/mappings/observations done; incident features missing | Ingress checks passed | Real incident/alert/timeline pending |
+| 5: Claims and escalation | Not implemented | Pending | Pending |
+| 6: Resolution and confirmation | Domain flow not implemented; safety foundation reusable | Pending for domain flow | Pending |
+| 7: Replay | Not implemented | Pending | Required simulation demonstration pending |
+| 8: Rehearsal | Not started | Full scenario rehearsal pending | Calls, timing and recording pending |
+| 9: Submission | Not started | Final review pending | Team submission pending |
+
+Configuration note, 2026-10-24: the user reports adding SVAAR_BOLNA_API_KEY.
+The latest saved-file check confirms both the API key and agent ID are present.
+Settings validation and BolnaClient construction/cleanup passed without any HTTP
+request. No value was displayed. Configuration is ready for explicit adapter
+use. Authenticated GET account and agent checks subsequently passed on Oct 24:
+wallet positive, capacity available, configured agent processed with a conversation
+task. No call was placed; turn delivery remains unverified (A-014).
+
+Voice integration handoff: the user assigned remaining Bolna wiring to a teammate.
+The configured tunnel/webhook returned HTTP 401 initially, then HTTP 422 after
+configuration changes. Payload validation remains unresolved; do not mark
+callback processing, the conversation bridge or real-call acceptance complete.
+
+Next independent build: incident grouping -> ordered timeline -> get_timeline ->
+deduplicated owner alert. This needs new software, not just credentials.
+In parallel, resolve Bolna account/turn-reference/index delivery before exposing
+its authenticated routes. No separate stable sender-ID contract is required for
+Caspian under the approved MVP address policy (A-011).
 
 ## Phase 0: Engineering foundation
 
-- [x] Phase complete: local scaffold and shared infrastructure.
-- [x] Python package, dependency lock, settings and structured logging.
-- [x] FastAPI lifecycle, health/readiness probes and API error conventions.
-- [x] SQLAlchemy sessions, explicit transactions and empty Alembic baseline.
-- [x] PostgreSQL persistence, one-shot migrations and unprivileged app image.
-- [x] Feature ownership packages, including agent, identity and actions.
-- [x] Synchronous voice TurnRunner protocol, without a fake implementation.
-- [x] Opt-in gateway service and infrastructure diagnostic, without a fake listener.
-- [x] Infrastructure tests, CI definition and development documentation.
+Prerequisite: none.
+
+- [x] Phase complete: required local foundation scope.
+
+### Implementation
+
+- [x] Python package/lock, settings, logging and modular ownership boundaries.
+- [x] FastAPI lifecycle, health/readiness and sanitized API errors.
+- [x] Synchronous SQLAlchemy sessions, PostgreSQL and Alembic baseline.
+- [x] Compose migration flow, unprivileged app image and opt-in gateway diagnostic.
+- [x] TurnRunner protocol, infrastructure tests, CI definition and run documentation.
+
+### Offline verification
+
+- [x] Infrastructure tests, lint/format, migrations and Compose configuration passed.
+- [x] Mac locked dependency installation and frontend production build verified.
+
+### Live acceptance
+
+- [x] Required local database/container startup and health/readiness verified.
+- No external provider acceptance is required for Phase 0. This does not establish
+  a running chat listener, deployed production app or remote CI success.
 
 Exit check: local startup, database connectivity, migrations, tests, lint/format
 and container configuration work without any provider dependency.
+
+Evidence: historical Oct 18 and Oct 21 checks retained below; later migrations
+and runtime work supersede their old scaffold-only limitations.
+
+## Phase 1: Contract checks, identity and action safety
+
+Target: Oct 18 to 19. Prerequisite: Phase 0.
+
+- [ ] Phase complete.
+
+### Implementation
+
+- [x] Scoped organizations/principals, expiring single-use invites and trusted bindings.
+- [x] Registry/dispatcher, validated arguments, org/role/channel checks and execution audit.
+- [x] Owner-bound atomic confirmations, expiry and durable uncertain execution states.
+- [x] Typed standalone Jev adapter, confidence policy, per-question fallback and audit.
+- [x] P0 usability/intent schemas and deterministic mission allowlists.
+- [x] Implemented feature settings: operator, LLM, Caspian, Bolna adapter and GitHub HMAC.
+- [ ] Jev runtime settings/provider composition and remaining voice route credentials.
+- [ ] Operator reconciliation path for uncertain external execution (A-006).
+- [ ] Close outstanding implementation-design decisions recorded in A-007.
+
+### Offline verification
+
+- [x] Unconfirmed tier-2 actions do not execute; concurrent confirmations run once locally.
+- [x] Owner/channel/expiry/role rechecks and invalid-argument cases pass.
+- [x] Missing/invalid/unavailable Jev answers fall back independently and are audited.
+- [x] Mission limits cannot be expanded by model/intent output.
+- [x] Implemented standalone provider contracts have mocked HTTP tests.
+- [ ] Full provider composition and real-adapter uncertain-outcome recovery checks.
+
+### Live acceptance
+
+- [x] Caspian Telegram selected; authenticated connection/poll reads passed on Oct 23.
+- [x] Caspian sender-address policy explicitly accepted by the user (A-011);
+  this is an MVP decision, not proof of immutable usernames.
+- [ ] Caspian outbound delivery and full enrollment/read-tool exchange.
+- [x] Verify Bolna account access, positive wallet, available concurrency and processed agent.
+- [ ] Choose and verify Bolna turn mode and bridge configuration.
+- [ ] Verify Bolna call-reference delivery and one explicitly authorized outbound call.
+- [ ] Verify the selected Jev model/gateway with a real response; Vercel is selected,
+  mock-only work is approved, and no purchase is authorized or implied (A-002).
+
+Exit check: unconfirmed tier-2 tools never execute; concurrent confirmations cannot
+create duplicate local execution attempts; authorization is rechecked; invalid or
+unavailable Jev responses fall back safely; mission limits are enforced. Required
+quality checks pass. Contract blockers: A-002; execution ambiguity: A-006.
+
+## Phase 2: Shared chat and voice agent runtime
+
+Target: Oct 20 to 21. Prerequisites: identity/action gate and selected transport.
+
+- [ ] Phase complete.
+
+### Implementation
+
+- [x] ChannelTransport and Caspian private Telegram adapter under approved MVP policy.
+- [x] Durable inbound dedupe, resumable received work and conservative uncertain states.
+- [x] Scoped chat/call history and exclusion of invites/codes from later model history.
+- [x] Bounded OpenAI-compatible adapter, chat/voice profiles and pre-execution limits.
+- [x] Registry-generated tool policy; business tools dispatch through actions.
+- [x] Durable outbox with receipts, safe rejection backoff and no blind uncertain retries.
+- [x] Internal TurnRunner injection sharing AgentLoop without agent/voice cross-imports.
+- [x] Usability/intent gates and deterministic mission checks in the shared voice path.
+- [x] Gateway polling, persistent cursor, stream ownership, shutdown and heartbeat health.
+- [ ] External authenticated voice call-reference and retry-index mapping (A-013).
+- [ ] Voice confirmation ticket delivery and operator recovery tooling (A-006/A-013).
+- [ ] Bound/verify remaining synchronous provider handlers for the full voice budget (A-009).
+
+### Offline verification
+
+- [x] Real PostgreSQL enrollment -> whoami -> outbox -> duplicate handling passes.
+- [x] Isolation, concurrent workers, durable cursor restart and crash boundaries pass.
+- [x] Private-code chat delivery -> fake call -> exact voice verification passes.
+- [x] Unusable/ambiguous speech cannot run tools; limits and late inference checks pass.
+- [x] Gateway composition, resource cleanup and stale heartbeat checks pass.
+- [ ] Full provider-handler and end-to-end voice latency validation.
+
+### Live acceptance
+
+- [x] User-reported Groq native-tool probes passed on Oct 20 and Oct 21.
+  Mac median was 0.5919 seconds for the full non-streaming response, not first token.
+- [ ] Real private enrollment, whoami and an additional read tool work through chat.
+- [ ] A real redelivery produces one effect and verified outbound delivery.
+- [ ] A trusted real voice turn reaches the same agent and action gate.
+- [ ] Live voice usability/intent routing and complete turn latency pass.
+
+Exit check: invite enrollment, whoami and a read tool work in chat; a resent message
+has one effect; unusable/ambiguous speech cannot invoke tools; deadlines and limits
+hold. Required quality checks pass. Track A-001 and A-002.
+
+## Phase 3: Mission-bound voice transport
+
+Target: Oct 22 to 23. Prerequisite: shared runner and identity/action boundaries.
+
+- [ ] Phase complete.
+
+### Implementation
+
+- [x] Bolna placement/execution adapter with sanitized errors and provider retries disabled.
+- [x] Durable ordinary-call intents, receipt scope checks and uncertain-placement policy.
+- [x] Internal mission-bound runner, per-call history and idempotent indexed replies.
+- [x] Pending phone challenge, exact-code action, expiry/attempt/cooldown safeguards.
+- [x] Private /verify_phone issuance, atomic code outbox and pending verification intent.
+- [x] Narrow pending-number exception only for phone_verify; ordinary calls require
+  verified phones and verification offers only verify_phone_code.
+- [x] Durable private fallback follow-ups, dedupe and honest unroutable fallback (A-016).
+- [x] Failed/unanswered status receipts queue one verified private outbox follow-up
+  per call, atomically with the receipt; absent/ambiguous routes queue nothing.
+- [x] Internal hashed call-reference resolver delegates to the guarded indexed runner.
+- [ ] Verify provider delivery of reference/retry identity and implement its authenticated turn route.
+- [x] Implement status receipt authentication, direct peer-IP checks and durable dedupe.
+- [x] Restricted Cloudflare loopback status listener with scoped edge-header checks.
+- [ ] Verify real Cloudflare ingress and implement operator balance alerts.
+- [ ] Wire account readiness, authorized call scheduling/limits and production placement.
+- [ ] Implement transcript retention and voice confirmation-ticket notification delivery.
+- [x] Implement a status-only tunnel entry point with operator/docs routes absent.
+- [x] User launched the restricted tunnel and configured the hosted status webhook.
+- [ ] Teammate handoff: resolve the dashboard sample HTTP 422 and verify accepted
+  callback processing against a stored Svaar execution (A-014).
+
+### Offline verification
+
+- [x] Placement acceptance/rejection/unknown outcomes and no duplicate redial pass.
+- [x] Receipt IDs, state progression, final closure and stale-progress rejection pass.
+- [x] Exact/leading-zero codes, ownership, expiry, attempts, cooldown and concurrency pass.
+- [x] Duplicate/conflicting turns, interrupted execution and no secret-history replay pass.
+- [x] Private code delivery withholding, transaction rollback and safe downgrade checks pass.
+- [x] Failure follow-up routing, dedupe, recipient revocation and missing-route cases pass.
+- [x] Status route authentication, peer-IP rejection, concurrent dedupe, replay/reordering
+  and transaction rollback tests.
+- [ ] Provider turn-route authentication and transcript retention tests.
+- [ ] Production call scheduler/readiness and notification timing tests.
+
+### Live acceptance
+
+- [x] Verify Bolna account access/capacity and configured agent processing through GETs.
+- [ ] Verify hosted bridge configuration and telephony delivery in an authorized call.
+- [ ] Confirm chosen turn mode, call-reference delivery and stable retry identifiers.
+- [ ] Explicitly authorized call reaches the intended number and verifies it by code.
+- [ ] Spoken request is answered through Svaar; duplicate completed callback applies once.
+- [ ] Real timeout/failure produces the intended spoken reply/private follow-up.
+- [ ] Verify actual turn latency and restricted ingress.
+
+Exit check: an authorized real call verifies the intended phone; a spoken question
+reaches the shared agent; retries do not repeat effects; completed is processed
+once. Failed calls cannot create contradictory evidence. Required checks pass.
+
+## Phase 4: CI ingestion and incident timeline
+
+Target: Oct 24 to 25. Prerequisites: scoped identity, chat delivery and incident storage.
+
+- [ ] Phase complete.
+
+### Implementation
+
+- [x] Explicit repository/installation-to-org mapping and operator-only creation route.
+- [x] Raw-body HMAC ingress with bounded input, payload validation and delivery-ID dedupe.
+- [x] Atomic normalized workflow observations/receipts with stable run-transition keys.
+- [x] Append-only observations with source provenance and occurrence timestamps.
+- [ ] GitHub App authentication and REST client.
+- [ ] Incident aggregate/linkage and deterministic failure fingerprints.
+- [ ] Organization-scoped ordered incident timeline and get_timeline action.
+- [ ] Owner mapping, durable alerts and duplicate-alert prevention through the outbox.
+- [ ] Complete the incident pipeline without automatic workflow reruns.
+
+### Offline verification
+
+- [x] Synthetic HMAC, malformed/oversized/ambiguous input and mapped-scope checks pass.
+- [x] Duplicate/conflicting/concurrent deliveries and atomic rollback checks pass.
+- [x] Unmapped repos/installations are rejected; operator mappings cannot be overwritten.
+- [x] PostgreSQL rejects observation updates/deletes; source time survives arrival reordering.
+- [ ] GitHub App/REST adapter tests.
+- [ ] Fingerprinting, incident grouping/linkage and cross-org timeline/action tests.
+- [ ] Workflow failure -> one incident -> one owner alert -> chat/voice timeline slice.
+
+### Live acceptance
+
+- [ ] Configure a real GitHub App/webhook secret, installation and explicit repo mapping.
+- [ ] One real failed demo workflow creates the intended scoped incident and chat alert.
+- [ ] Real redelivery does not repeat the incident/alert.
+- [ ] Its ordered timeline is available in chat and on an authorized voice call.
+
+Exit check: a failing demo workflow produces one scoped incident/chat alert and
+its ordered timeline is available through chat and voice. Signature, unmapped-repo
+and duplicate-delivery tests pass alongside required quality checks.
+
+## Phase 5: Evidence-backed claims and guarded escalation
+
+Target: Oct 26 to 27. Prerequisites: events, outbox and verified voice calls.
+
+- [ ] Phase complete.
+
+Existing mission definitions, decision audit and call/outbox safeguards are reusable
+foundations, not implemented claims or escalation.
+
+### Implementation
+
+- [ ] Detect claims and perform deterministic evidence lookup with provenance.
+- [ ] Implement claim_check/escalation handlers and incident acknowledgement.
+- [ ] Classify usable final answers and derive status from persisted evidence.
+- [ ] Preserve unverified for missing evidence, unusable speech and failed calls.
+- [ ] Guarded jobs, row claiming, durable escalation intents and deterministic call limits.
+- [ ] Independently validated CI category/adaptive escalation decisions and labelled audit.
+- [ ] Use batching only if the actual gateway contract verifies support.
+
+### Offline verification
+
+- [ ] Evidence/claim state transitions and missing-evidence cases pass.
+- [ ] Wrong-person, unusable-answer and failed/unanswered-call cases remain unverified.
+- [ ] Concurrent escalation produces one intent; one failed job does not stop others.
+- [ ] Timing, recipient authorization, call limits and per-question decision audit pass.
+
+### Live acceptance
+
+- [ ] An overdue unacknowledged incident triggers one explicitly authorized call.
+- [ ] A real usable answer produces evidence with provenance.
+- [ ] Missing/failed calls do not contradict claims; acknowledgement suppresses escalation.
+
+Exit check: an overdue unacknowledged incident triggers one authorized call under
+concurrent workers; one job failure does not stop others; missing/failed calls never
+contradict claims; deterministic code enforces timing, recipients and call limits.
+Required quality checks pass.
+
+## Phase 6: Validated resolution and cross-channel confirmation
+
+Target: Oct 28. Prerequisites: action gate, confirmations, claims and scoped adapters.
+
+- [ ] Phase complete.
+
+The tested confirmation/action gate is reusable; negotiation and real CI execution
+are not implemented by that foundation alone.
+
+### Implementation
+
+- [ ] Release-freeze, on-call staffing and deploy/CI capacity constraints.
+- [ ] Bounded proposal/revision rounds and deterministic validator.
+- [ ] Confirmation-call domain flow with exact owner/channel/nonce/expiry checks.
+- [ ] Gated CI action with durable outcomes and no blind risky retry.
+- [ ] Optional: Jira read/create adapter, creation gated as tier 2.
+- [ ] Optional: Jev proposal pre-screening outside the critical voice path.
+
+### Offline verification
+
+- [ ] Reject invalid proposals and accept a valid revision.
+- [ ] Domain CI action waits for valid owner confirmation and runs once concurrently.
+- [ ] Provider rejection/unknown outcomes require safe reconciliation (A-006).
+- [ ] Optional implemented integrations have scoped adapter/action tests.
+
+### Live acceptance
+
+- [ ] Demonstrate rejected proposal -> valid revision -> validator approval.
+- [ ] Authorized real CI action waits for cross-channel confirmation.
+- [ ] Duplicate confirmation does not repeat the action; provider receipt is checked.
+
+Exit check: validator rejects a proposal and accepts a valid revision; a risky CI
+action waits for owner confirmation across verified channels; duplicate confirmation
+attempts do not repeat it. Required checks pass. Address A-006.
+
+## Phase 7: Isolated replay and exception draft
+
+Target: Oct 29. Prerequisite: timeline and validator-approved proposal.
+
+- [ ] Phase complete.
+
+### Implementation
+
+- [ ] Replay one corrected failed-pipeline sequence in isolated state.
+- [ ] Fake/recorded adapters and explicitly simulated results.
+- [ ] Prevent replay writes to observed events and live provider access.
+- [ ] Optional: exception draft export with tier-2 approval.
+
+### Offline verification
+
+- [ ] Corrected sequence produces labelled simulation with no live effects.
+- [ ] Prove replay cannot write observed facts or call GitHub, Jira or Bolna.
+- [ ] Optional draft export honors owner confirmation and scope.
+
+### Live acceptance
+
+- [ ] Demonstrate the required isolated replay in the integrated demo.
+- No live provider action is required or permitted by replay. Simulation never
+  establishes production recovery.
+
+Exit check: corrected sequence produces labelled simulation with no live effects.
+Replay cannot establish production recovery. Required quality checks pass.
+
+## Phase 8: Integration rehearsal and demo recording
+
+Target: Oct 30. Prerequisite: required incident, claims, decision and voice loop.
+
+- [ ] Phase complete.
+
+### Implementation
+
+- [ ] Complete the alert/call/timeline/claim/negotiation/replay/confirmed-action demo path.
+- [ ] Prepare reproducible demo data, run instructions and recording script.
+- [ ] Instrument timing and audit display; record units and optional cuts honestly.
+
+### Offline verification
+
+- [ ] Full scenario rehearsal passes with isolated fixtures/adapters.
+- [ ] Integrated duplicate/reordering/provider-failure/deadline checks pass.
+- [ ] Required quality checks and observed/simulated separation pass.
+
+### Live acceptance
+
+- [ ] At least five real end-to-end calls with authorized participants.
+- [ ] Measure turn latency and time to first audio; verify units and report medians.
+- [ ] Rehearse and record a clean complete demonstration under three minutes.
+- [ ] Show decision/tool audit and clearly label mocked/simulated behavior.
+- [ ] Record team-approved optional cuts and remaining limitations.
+
+Exit check: reproducible recording and evidence-backed metrics exist; required
+quality checks pass; no unresolved critical trust-rule failure remains.
+
+## Phase 9: Submission
+
+Target: Oct 31, morning; exact cutoff must be confirmed by the team.
+
+- [ ] Phase complete.
+
+### Implementation
+
+- [ ] Confirm exact cutoff and prepare write-up, recording and run instructions.
+- [ ] Reconcile checklist/anomalies with the actual final code.
+- [ ] Prepare the team's final repository/secrets/submission review.
+
+### Offline verification
+
+- [ ] Final required checks pass; instructions reproduce the demonstrated build.
+- [ ] Team reviews secrets, repository contents and submission-time documents.
+- [ ] Recording/write-up accurately distinguish live, mocked and simulated behavior.
+
+### Live acceptance
+
+- [ ] Team submits before the confirmed cutoff.
+- [ ] Team records successful submission confirmation.
+- Agents do not publish, commit or push on the team's behalf.
+
+Exit check: team has evidence of successful submission before the cutoff.
+
+## Historical evidence through 2026-10-23
+
+The records below preserve earlier results and decisions. They are not the current
+checklist: old statements about missing code, ports, migrations or credentials may
+have been superseded by later entries and the current phase sections above.
+
+<details>
+<summary>Expand dated implementation and verification history</summary>
+
+#### Phase 0: retained dated evidence
 
 Evidence recorded on 2026-10-18: 29 tests passed against real PostgreSQL; Ruff
 checks passed; default and gateway-profile Compose validated; updated image built;
@@ -65,37 +469,7 @@ authentication returned 401. No organization or invite was created by that check
 The already-running API must restart to pick up the new token. Credentials remain
 private and no provider requests were made. See A-010.
 
-## Phase 1: Contract checks, identity and action safety
-
-Target: Oct 18 to 19. Prerequisite: Phase 0.
-
-- [ ] Phase complete.
-- [ ] Verify Caspian auth, inbound mode, stable IDs, sender trust, outbound delivery
-  and channels; record the Caspian/Telegram transport decision.
-- [ ] Verify Bolna account readiness, turn mode, call-reference delivery and one
-  explicitly authorized outbound test call.
-- [ ] Select Jev gateway/model and verify its actual request/response contract.
-  Vercel selected; versioned-model live acceptance is pending. User approved
-  mock-only development after observing that Jev is excluded from free credits.
-  No purchase was made by the agent.
-- [x] Implement scoped identities, expiring single-use invites and trusted bindings.
-- [x] Implement the actions registry/dispatcher, argument validation, role/org/channel
-  checks, configured risk tiers and execution audit.
-- [x] Implement owner-bound atomic confirmations, expiry, execution authorization
-  and an explicit uncertain-provider-outcome policy.
-- [ ] Implement typed Jev adapter, confidence policy, fallback and decision audit.
-  Policy, per-question fallback, audit and the standalone Vercel adapter have
-  offline coverage. Live verification and runtime settings/composition remain
-  pending (A-002); mocked success does not complete this deliverable.
-- [x] Define P0 intent/usability schemas and deterministic mission-guard interface.
-- [ ] Introduce validated feature settings with process-specific credential wiring.
-  Operator, invite, confirmation and policy settings are active; provider settings
-  arrive with their adapters (A-003).
-
-Exit check: unconfirmed tier-2 tools never execute; concurrent confirmations cannot
-create duplicate local execution attempts; authorization is rechecked; invalid or
-unavailable Jev responses fall back safely; mission limits are enforced. Required
-quality checks pass. Contract blockers: A-002; execution ambiguity: A-006.
+#### Phase 1: retained dated evidence
 
 Evidence recorded on 2026-10-20 (partial; phase not complete). Owner: not assigned
 in this document. Local checks only, not remote CI or provider verification:
@@ -121,55 +495,7 @@ Remaining: provider contract checks and live Jev acceptance (A-002), provider se
 phone binding challenge (Phase 3), reconciliation for unknown outcomes (A-006), and
 team review of the design choices in A-007.
 
-## Phase 2: Shared chat and voice agent runtime
-
-Target: Oct 20 to 21. Prerequisites: identity/action gate and selected transport.
-
-- [ ] Phase complete.
-- [ ] Implement transport protocol and the chosen authenticated chat adapter.
-  On 2026-10-21 selection was pending. Superseded on 2026-10-23: user selected
-  Caspian hosted Telegram. ChannelTransport and a standalone HTTP adapter are
-  implemented with 31 offline tests. The approved MVP policy trusts private sender
-  addresses for invite enrollment (A-011); no separate stable-ID contract is
-  required. Durable processing and gateway composition exist. Live end-to-end
-  channel acceptance remains pending.
-- [ ] Implement durable inbound dedupe, retryable failures and thread/call memory.
-  ChatRuntime now implements scoped private chat history and durable dedupe with
-  received/processing/processed/unknown states. Received work can resume; uncertain
-  execution never retries automatically. Call memory and reconciliation tooling
-  remain pending. See A-012 for the state/column additions to PLAN.md.
-- [x] Verify chat LLM native tool calling; implement the bounded adapter.
-  User-reported Groq openai/gpt-oss-20b probe on 2026-10-20: three requests,
-  native_tool_calls=true, median full non-streaming response 0.516 seconds.
-  On Oct 21 the user supplied a fresh Mac smoke result: three requests, native
-  tools true, median full response 0.5919 seconds. Mac Groq setup is restored.
-  No first-token or full voice-latency claim is made.
-- [ ] Implement chat/voice profiles, pre-execution round/call limits and deadlines.
-  Core profiles, limits and absolute inference deadlines are implemented/tested.
-  Full synchronous provider-handler latency remains an acceptance item (A-009).
-- [x] Generate registry-based tool policy; dispatch every tool through actions.
-- [x] Implement durable outbox sending with receipt/failure state.
-  Standalone worker tested with fake transports: safe rejection retries/backoff,
-  recipient recheck, concurrent claiming, queued receipts and unknown outcomes.
-  Live outbound acceptance and gateway worker startup remain pending.
-- [ ] Implement and inject TurnRunner without agent/voice implementation imports.
-  Internal VoiceRuntime is injected as app.state.voice_turn_runner through
-  VoiceAgentExecutor, sharing the existing AgentLoop. Server-owned call context,
-  verified-phone rechecks, per-call memory and durable indexed replies are tested.
-  Bolna call-reference mapping and live acceptance remain pending (A-013).
-- [ ] Integrate transcript usability, intent routing and deterministic mission limits.
-  Core gates and mission checks have mocked coverage. Live Jev, call binding and
-  transport wiring remain pending; unconfigured voice gates request clarification.
-- [ ] Replace gateway refusal with real runtime composition, shutdown and runtime
-  health reporting; API readiness is not listener health.
-  Composition, durable page cursors, outbox/receipt coordination, SIGTERM/SIGINT
-  shutdown and --status heartbeat checks are implemented with fake-provider tests.
-  Startup now uses the approved private sender-address policy.
-  Live acceptance remains unticked; missing future keys do not block offline work.
-
-Exit check: invite enrollment, whoami and a read tool work in chat; a resent message
-has one effect; unusable/ambiguous speech cannot invoke tools; deadlines and limits
-hold. Required quality checks pass. Track A-001 and A-002.
+#### Phase 2: retained dated evidence
 
 Evidence on 2026-10-21: all 195 existing tests passed on Mac with isolated
 PostgreSQL, including agent-loop and Jev HTTP/policy/audit scenarios. Shared
@@ -225,35 +551,7 @@ gateway process, outbound messages, model requests or calls were started.
 Remaining Phase 2 acceptance: live channel flow under the approved address policy,
 Bolna call-reference/turn-index mapping, real handler latency and operator recovery.
 
-## Phase 3: Mission-bound voice transport
-
-Target: Oct 22 to 23. Prerequisite: shared runner and identity/action boundaries.
-
-- [ ] Phase complete.
-- [ ] Implement outbound call intent/state and authenticated Bolna adapter.
-  BolnaClient and an internal CallService now have mocked HTTP/PostgreSQL coverage.
-  Placement markers, acceptance receipts and final-status reconciliation exist.
-  Live account readiness, authorized call and production caller wiring remain
-  pending; this is not an enabled dialer (A-014).
-- [ ] Implement only the selected turn route with per-call reference binding.
-- [ ] Persist/idempotently reuse replies and deduplicate status callbacks.
-- [ ] Implement the narrow phone_verify challenge before ordinary call missions.
-  Internal challenge issuance, exact-code tool, pending-number call exception
-  and shared-runner verification now have PostgreSQL/fake-provider coverage.
-  Private /verify_phone command issuance, durable code delivery and pending call
-  preparation are now wired and tested with fake providers. An authorized real
-  verification call and authenticated Bolna routes remain pending (A-015).
-- [ ] Enforce separate voice credentials, status secret and trustworthy IP checks.
-- [ ] Implement fixed timeout/error replies, outbox fallback and transcript retention.
-  Core failures now enqueue a deduplicated private chat follow-up through the
-  existing outbox when one verified route exists. Missing/ambiguous routes use
-  an honest spoken fallback. Transcript retention and live acceptance remain
-  pending (A-016).
-- [ ] Restrict tunnel ingress to implemented external routes; keep operator/docs local.
-
-Exit check: an authorized real call verifies the intended phone; a spoken question
-reaches the shared agent; retries do not repeat effects; completed is processed
-once. Failed calls cannot create contradictory evidence. Required checks pass.
+#### Phase 3: retained dated evidence
 
 Evidence on 2026-10-23 (partial, Phase 3 remains incomplete):
 Verified public Bolna call, execution and auto-retry documentation. Implemented
@@ -287,25 +585,7 @@ routes, verified call-reference/turn-index delivery, callback dedupe, notificati
 outbox and real authorized call. CallService is internal only; no action handler,
 API, application lifespan or job starts it. Contract blockers: A-002 and A-014.
 
-## Phase 4: CI ingestion and incident timeline
-
-Target: Oct 24 to 25. Prerequisites: scoped identity, chat delivery and incident storage.
-
-- [ ] Phase complete.
-- [ ] Implement GitHub App client and explicit repository-to-organization mapping.
-  Explicit repository/installation/org mappings and operator-only creation route
-  exist; GitHub App authentication/REST client remains pending.
-- [x] Verify raw-body HMAC, validate payloads and deduplicate delivery IDs.
-  Scope: documented contract and synthetic signed HTTP/PostgreSQL tests, not a
-  live GitHub delivery.
-- [x] Persist append-only observed events with provenance and stable external IDs.
-  Scope: normalized workflow_run observations; incident linkage remains pending.
-- [ ] Implement failure fingerprints and an ordered incident timeline.
-- [ ] Deliver owner alerts through the outbox; do not automatically rerun workflows.
-
-Exit check: a failing demo workflow produces one scoped incident/chat alert and
-its ordered timeline is available through chat and voice. Signature, unmapped-repo
-and duplicate-delivery tests pass alongside required quality checks.
+#### Phase 4: retained dated evidence
 
 Evidence on 2026-10-23 (partial): migrations 0009 and 0010 add outbox notification
 dedupe plus repo_mappings, webhook_deliveries and events. HMAC is checked over exact
@@ -326,94 +606,9 @@ aggregation/linkage, scoped timeline and get_timeline, owner alerts and live
 repository acceptance. See A-017 for schema extensions and the minimal ingress
 scope. No automatic workflow reruns exist.
 
-## Phase 5: Evidence-backed claims and guarded escalation
+#### Additional dated updates
 
-Target: Oct 26 to 27. Prerequisites: events, outbox and verified voice calls.
-
-- [ ] Phase complete.
-- [ ] Detect claims and perform deterministic evidence lookup with provenance.
-- [ ] Implement claim_check/escalation missions and incident acknowledgement.
-- [ ] Classify usable final answers; derive status from persisted evidence.
-- [ ] Preserve unverified for missing evidence, unusable speech and failed calls.
-- [ ] Implement guarded polling, row claiming and durable escalation intent/state.
-- [ ] Add independently validated CI category and adaptive escalation decisions.
-- [ ] Record per-question audit and evaluate labelled examples; batch only if the
-  verified gateway contract supports it.
-
-Exit check: an overdue unacknowledged incident triggers one authorized call under
-concurrent workers; one job failure does not stop others; missing/failed calls never
-contradict claims; deterministic code enforces timing, recipients and call limits.
-Required quality checks pass.
-
-Evidence: Pending.
-
-## Phase 6: Validated resolution and cross-channel confirmation
-
-Target: Oct 28. Prerequisites: action gate, confirmations, claims and scoped adapters.
-
-- [ ] Phase complete.
-- [ ] Implement release-freeze, on-call staffing and deploy/CI capacity constraints.
-- [ ] Implement bounded proposal/revision rounds and deterministic validation.
-- [ ] Implement confirmation calls with exact nonce and owner/channel/expiry checks.
-- [ ] Implement a gated CI action with durable outcomes and no blind risky retries.
-- [ ] Optional: Jira read/create adapter, with creation gated as tier 2.
-- [ ] Optional: Jev proposal pre-screening, outside the critical voice path.
-
-Exit check: validator rejects a proposal and accepts a valid revision; a risky CI
-action waits for owner confirmation across verified channels; duplicate confirmation
-attempts do not repeat it. Required checks pass. Address A-006.
-
-Evidence: Pending.
-
-## Phase 7: Isolated replay and exception draft
-
-Target: Oct 29. Prerequisite: timeline and validator-approved proposal.
-
-- [ ] Phase complete.
-- [ ] Replay one corrected failed-pipeline sequence in isolated state.
-- [ ] Use fake/recorded adapters only; results are explicitly simulated.
-- [ ] Prove replay cannot write observed events or call GitHub, Jira or Bolna.
-- [ ] Optional: export an exception draft with tier-2 approval.
-
-Exit check: corrected sequence produces labelled simulation with no live effects.
-Replay cannot establish production recovery. Required quality checks pass.
-
-Evidence: Pending.
-
-## Phase 8: Integration rehearsal and demo recording
-
-Target: Oct 30. Prerequisite: required incident, claims, decision and voice loop.
-
-- [ ] Phase complete.
-- [ ] Run the full alert, call, timeline, claim, negotiation, simulated replay and
-  confirmed-action demonstration.
-- [ ] Complete at least five real end-to-end calls with authorized participants.
-- [ ] Verify duplicate/reordered delivery, provider failures and deadlines.
-- [ ] Measure turn latency and time to first audio; confirm units and report medians.
-- [ ] Rehearse and record a clean demonstration under three minutes.
-- [ ] Show decision/tool audit; label all mocked or simulated behavior.
-- [ ] Record team-approved optional cuts and remaining limitations honestly.
-
-Exit check: reproducible recording and evidence-backed metrics exist; required
-quality checks pass; no unresolved critical trust-rule failure remains.
-
-Evidence: Pending.
-
-## Phase 9: Submission
-
-Target: Oct 31, morning; exact cutoff must be confirmed by the team.
-
-- [ ] Phase complete.
-- [ ] Confirm cutoff and prepare write-up, recording and run instructions.
-- [ ] Reconcile checklist/anomaly status against actual code and final checks.
-- [ ] Team manually reviews secrets, repository contents and submission-time docs.
-- [ ] Team submits and records confirmation; agents do not publish or push.
-
-Exit check: team has evidence of successful submission before the cutoff.
-
-Evidence: Pending.
-
-### Approved MVP sender policy, 2026-10-23
+##### Approved MVP sender policy, 2026-10-23
 
 The user explicitly removed the separate verified stable sender-ID contract
 requirement. This supersedes earlier A-011 startup/enrollment blocker statements
@@ -425,7 +620,7 @@ Mutable username changes or reassignment can affect bindings; this is an accepte
 MVP limitation, not a verified immutable-ID guarantee. No live gateway, messages
 or calls were started for this change. Live channel acceptance remains pending.
 
-### Phase 2 internal voice runner evidence, 2026-10-23
+##### Phase 2 internal voice runner evidence, 2026-10-23
 
 Implemented voice/{models,runtime}.py, agent/voice_runner.py, migration 0005,
 TurnRunner contract extension and application lifecycle injection. Agent and voice
@@ -454,7 +649,7 @@ handler latency and live chat/voice acceptance. The inherited fixed fallback
 mentions messaging, but this internal runner does not yet enqueue such a message.
 No provider requests, messages or calls were made. Phase 2 remains incomplete.
 
-### Phase 3 internal phone verification evidence, 2026-10-23
+##### Phase 3 internal phone verification evidence, 2026-10-23
 
 Implemented identity/{phones,phone_tools}.py and PhoneChallenge storage, registered
 verify_phone_code through actions, added a server-resolved challenge identifier
@@ -488,7 +683,7 @@ turn/status routes, verified call-reference/turn-index delivery, callback dedupe
 fallback notifications and authorized live acceptance. No Bolna route or tunnel
 was added based on assumed payload fields. Phase 3 remains incomplete.
 
-### Phase 3 private challenge delivery evidence, 2026-10-23
+##### Phase 3 private challenge delivery evidence, 2026-10-23
 
 Added the private identity-enrollment command /verify_phone <E.164 number> to
 ChatRuntime, alongside /join. It requires transport-authenticated enrollment,
@@ -523,3 +718,136 @@ Remaining: authenticated Bolna turn/status routes and call-reference/index contr
 callback dedupe, call scheduling/readiness, live Jev or approved voice-gate design,
 fallback/confirmation notifications and explicitly authorized real acceptance.
 Phase 3 remains incomplete.
+
+</details>
+
+
+### Oct 24: GET-only Bolna readiness
+
+Added BolnaClient.readiness and python -m svaar.voice.smoke. The command makes
+only GET /user/me and GET /v2/agent/{id}, verifies the configured agent identity,
+and prints readiness flags without balances, identities, prompts or credentials.
+Live checks passed: wallet positive, concurrency available, agent processed and a
+conversation task present. calls_placed=0 and turn_delivery_verified=false.
+The current hosted configuration has no ask_svaar bridge or call_ref template.
+No hosted configuration was changed. Authenticated turn/status endpoints,
+stable retry binding and end-to-end call acceptance remain pending.
+
+Verification: 35 Bolna adapter tests and the full 406-test PostgreSQL suite passed;
+Ruff lint/format and alembic check passed. The initial full-suite attempt failed
+because PostgreSQL was stopped; starting the existing db service resolved it.
+No schema migration or Git mutation was performed.
+
+
+### Oct 24: authenticated status receipts
+
+Implemented POST /api/v1/voice/status using a separate 32-character minimum
+header secret and the three documented Bolna peer IPs. Unknown executions or
+mismatched agents are rejected. Payloads are bounded; duplicate JSON keys are
+rejected. Migration 0011 stores only receipt metadata, unique execution/status,
+and a payload hash. Call locking makes concurrent duplicates atomic with status
+updates. Shared lifecycle handling rejects stale progress and cannot reopen a
+terminal call. No transcript/extraction is retained and no claim is inferred.
+
+The image disables proxy headers. An arbitrary tunnel cannot satisfy peer-IP
+checks; reviewed trusted ingress and real callback delivery remain pending.
+No hosted agent mutation, real callback, message or call was performed.
+Failure notifications, transcript retention/classification and the authenticated
+conversation bridge remain incomplete. This is transport receipt handling only.
+
+Verification: full PostgreSQL suite 417 passed with the existing A-004 warning;
+Ruff lint/format, Compose config, migration downgrade/upgrade/check on svaar_test,
+and upgrade/check on local svaar passed. Both databases are at 0011.
+
+
+### Oct 24: failed-call outbox wiring
+
+Application composition injects agent.enqueue_call_failure into voice status
+processing without cross-importing agent/voice implementations. A newly applied
+no-answer/busy/failed/canceled/stopped/error receipt queues one generic private
+follow-up using the existing verified-route and outbox ordinal locks. Duplicate
+or stale terminal statuses cannot enqueue another. Completed and balance-low
+receipts do not invoke this notifier. No claim, identity or evidence is changed.
+An enqueue exception rolls back receipt, call status and outbox together; a false
+result means no safe route, so the receipt commits without a notification.
+No new schema, dependencies, provider mutations or live sends were needed.
+
+Verification: full suite 430 passed; after adding the final HTTP composition
+test, all 35 status/notification tests passed. Ruff lint/format and alembic check
+passed. Existing A-004 warning remains. Live callback/outbox delivery, operator
+balance alerts, conversation bridge and trusted ingress remain pending.
+
+
+### Oct 24: internal call-reference boundary
+
+Added ReferencedTurnRunner, which accepts a private placement reference, validates
+bounded text and an explicit stable index, resolves only a stored reference hash
+with execution/agent receipts, and delegates to the existing guarded TurnRunner.
+No asserted phone, organization or principal is accepted. No provider HTTP route,
+model-derived index, automatic activation or new schema was added.
+
+Real PostgreSQL integration confirms duplicate reuse, conflicting retry rejection,
+identical utterances at new indices and closed-call replay/new-turn restrictions.
+Full suite: 451 passed; Ruff lint/format and alembic check passed. A-004 remains.
+
+Bolna function/schema documentation establishes parameters and auth headers, but
+does not establish a stable transport retry identifier. Provider delivery of the
+private reference and index remains unverified (A-013/A-014). Public HTTPS ingress
+and its trusted source-IP handling are still required. This internal boundary is
+not a working Bolna bridge and does not complete Phase 3.
+
+
+### Oct 24: restricted Cloudflare origin implementation
+
+create_status_ingress exposes only POST /api/v1/voice/status, without docs,
+health, operator, GitHub or turn routes. It reuses application lifecycle and
+outbox composition but skips model initialization. Missing status secret fails
+startup. The standard application remains on direct peer-IP checks.
+
+The dedicated listener trusts the local Mac and cloudflared connector, requires
+a 127.0.0.1 peer and one CF-Connecting-IP header from the documented Bolna allowlist,
+plus the callback secret. Uvicorn must bind 127.0.0.1 with --no-proxy-headers.
+Local processes holding the secret are trusted; arbitrary proxies/Workers are
+outside this deployment. README contains explicit port 8001 startup instructions.
+cloudflared is installed locally. No tunnel was started or hosted agent changed.
+
+Twenty-five synthetic ingress tests passed, covering route isolation, missing
+secret, nonlocal peers, malformed/duplicate/spoofed headers and normal-app
+separation. Real Cloudflare header delivery and Bolna callbacks remain unverified.
+
+Final verification: 476 tests passed against isolated PostgreSQL; Ruff lint/format
+and alembic check passed. Existing A-004 warning remains. No schema change,
+live provider request, public tunnel, message, call or Git mutation was made.
+
+
+### Oct 24: live tunnel attempt and teammate handoff
+
+User-provided evidence: a temporary Cloudflare URL was generated, the hosted
+Bolna status webhook and custom secret header were configured, and Send test
+returned HTTP 401 initially, then HTTP 422 after configuration changes.
+The screenshot showed Svaar's unauthorized envelope for the initial response.
+The subsequent 422 is consistent with passing authentication/source checks and
+failing payload validation in the implemented handler; its response body and
+payload were not inspected, so the exact cause is unverified.
+
+This establishes a user-reported live ingress attempt, not accepted receipt
+processing. No successful callback transaction, real call, phone verification,
+conversation turn or live outbox delivery was established. No new tests were run
+for this documentation-only update; the latest implementation check remains
+476 tests passed.
+
+The user asked to stop troubleshooting this wiring and handed it to a teammate
+(name unspecified). Remaining handoff:
+- Inspect a sanitized dashboard test payload/error to identify the 422 cause.
+- Confirm callback execution/agent identity matches a stored Svaar call receipt;
+  unknown sample executions deliberately return 404.
+- Verify accepted receipt persistence and duplicate delivery behavior live.
+- Finish the authenticated conversation bridge with verified private reference
+  and stable retry identity, then perform an explicitly authorized end-to-end call.
+- Maintain restricted ingress, separate secrets and all existing action gates.
+
+The tunnel URL is temporary; verify it is current before further provider tests.
+Secret values are intentionally omitted. Prior implementation-only statements
+that no tunnel/hosted configuration had been changed describe agent actions at
+that earlier point; this later user configuration supersedes current setup status.
+Phase 3 and all unverified live acceptance items remain incomplete.

@@ -1,6 +1,6 @@
 # Svaar anomalies and open integration questions
 
-Last reviewed: 2026-10-23 (Asia/Calcutta).
+Last reviewed: 2026-10-24 (Asia/Calcutta).
 
 ## How to use this log
 
@@ -505,3 +505,90 @@ acceptance. Earlier notes that code delivery was absent are historical.
 - Evidence: 396 tests passed (37 new across this task); schema drift, test-only
   0010 -> 0008 -> 0010 round trip, Ruff and Compose passed. Development DB is 0010.
   No live provider calls or messages and no new dependency/infrastructure.
+
+### A-014 configuration update, 2026-10-24
+
+The user reports adding SVAAR_BOLNA_API_KEY. A presence-only saved-.env check
+found API key present and agent ID absent.
+No value was displayed, .env was not edited, and no provider request was made.
+The API key was detected on the final saved-file check; the earlier presence
+check did not find it. No secret values were inspected or published.
+Account readiness, chosen turn mode, reference/index delivery and an explicitly
+authorized real test call remain unverified. This is configuration evidence only,
+not resolution of the live transport requirements.
+
+The checkpoint layout now separates implementation, offline verification and
+live acceptance under each original phase. Historical evidence and original exit
+checks are retained. The last implementation suite remains 396 passed on Oct 23;
+no implementation checks were rerun for the Oct 24 documentation restructure.
+
+
+### A-014 subsequent configuration update, 2026-10-24
+
+The user added the agent ID. Both Bolna API key and agent ID are now present in
+the saved .env. Settings validation and BolnaClient.from_settings construction/
+cleanup passed with no HTTP request. This supersedes the earlier missing-agent-ID
+observation. No values were displayed and .env was not edited. Account/agent
+readiness, turn mode/reference/index delivery and authorized live acceptance
+remain pending; configuration validation does not establish provider access.
+
+
+### A-014 authenticated readiness update, 2026-10-24
+
+GET /user/me and GET /v2/agent/{configured_id} succeeded. The wallet is positive,
+concurrency is available, the configured ID matches, and the agent is processed
+with a conversation task. The reusable read-only smoke command also passed.
+No secret, exact balance, personal data or provider prompt was printed.
+The hosted agent currently lacks an ask_svaar bridge and call_ref template.
+No agent update, outbound call or message was performed. Account-read access is
+verified; per-turn delivery, stable retry identifiers, callback delivery and
+telephony acceptance remain unresolved. Readiness does not close A-014.
+
+
+### A-014 status receipt implementation update, 2026-10-24
+
+The documented status webhook now has an implemented endpoint, independent
+header credential, direct peer allowlist, bounded parsing and atomic receipt
+dedupe. Synthetic HTTP and PostgreSQL tests pass; no real callback was received.
+Uvicorn must disable proxy headers. A generic tunnel will expose its own peer,
+so trusted ingress remains an explicit integration task, not an accepted
+forwarded-IP assumption. The hosted agent has not been changed.
+
+Status processing currently records transport lifecycle only. Claim evidence,
+transcript retention/classification and failure notifications are still pending,
+as are the turn bridge and stable retry binding. No live calls are authorized
+by account readiness alone. Full suite: 417 passed; migration 0011 verified on
+isolated test and local development databases.
+
+
+### A-014 failure notification wiring update, 2026-10-24
+
+Failed/unanswered callbacks now enqueue one generic private outbox follow-up per
+call via root application composition. Receipt and notification are atomic;
+enqueue exceptions allow redelivery, while absent/ambiguous verified routes
+deliberately queue nothing. Claim status and phone verification are unaffected.
+Full suite 430 passed; final status/notification scope 35 passed after the HTTP
+composition test was added. No live delivery is established. Operator balance
+alerts, turn reference/retry binding and trusted public ingress remain pending.
+
+
+### A-013 reference resolution update, 2026-10-24
+
+The internal ReferencedTurnRunner now resolves hashed private placement references
+to stored calls with execution/agent receipts and delegates to VoiceRuntime.
+It refuses malformed/missing indices and ineligible or unknown references.
+Full suite 451 passed, including durable runner retry and closed-call tests.
+No public route was added. Bolna parameter/auth documentation does not establish
+stable retry identity; that provider contract and trusted ingress remain open.
+Do not generate an index in the model or deduplicate by transcript text.
+
+
+### A-014 restricted ingress update, 2026-10-24
+
+Implemented a dedicated status-only Cloudflare origin listener. It requires
+loopback peer, a single allowed CF-Connecting-IP value and the independent
+callback secret. The normal app does not trust that header. This explicitly
+trusts the local host and its cloudflared process; it is not a general proxy
+trust policy. The listener must bind 127.0.0.1 with Uvicorn proxy headers disabled.
+Only the exact status route is exposed. No tunnel launch or live delivery has
+occurred. Real edge-header behavior and provider acceptance remain open.

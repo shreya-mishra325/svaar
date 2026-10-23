@@ -1,6 +1,6 @@
 # Svaar team and agent rules
 
-Last reviewed: 2026-10-18 (Asia/Calcutta).
+Last reviewed: 2026-10-24 (Asia/Calcutta).
 
 ## Scope and reading order
 
@@ -114,6 +114,14 @@ workflow; they do not authorize an agent to perform Git operations.
 
 ## Phase tracking and completion
 
+- Keep each phase's Implementation, Offline verification and Live acceptance
+  sections separate. Split mixed deliverables into individually scoped items.
+  A completed implementation or mock test never ticks its live acceptance item.
+- Record credential presence as configuration only. Do not turn a saved key into
+  account-readiness, authenticated-provider or completed-call evidence.
+- Preserve the original phase numbers, targets and exit checks when restructuring.
+  Keep dated evidence in the history section and label superseded limitations;
+  do not copy old pending notes back into current status.
 - Use `checkpoints.md` as the phase checklist. At task start identify the phase,
   assigned deliverables and dependencies; do not silently expand the task to finish
   other phases. Independent work may proceed in parallel with prerequisites clear.

@@ -116,7 +116,7 @@ Copy `.env.example` to `.env` (`Copy-Item .env.example .env` in PowerShell or `c
 ```sh
 docker compose up -d --wait db
 uv run --locked alembic upgrade head
-uv run --locked uvicorn svaar.app:create_app --factory --reload --no-access-log
+uv run --locked uvicorn svaar.app:create_app --factory --reload --no-access-log --no-proxy-headers
 ```
 
 Visit `http://127.0.0.1:8000/health`, `/ready` and `/docs`.
@@ -664,3 +664,124 @@ Contracts:
 [signature validation](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries),
 [workflow_run payloads](https://docs.github.com/en/webhooks/webhook-events-and-payloads#workflow_run)
 and [delivery handling](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks).
+
+
+### Read-only Bolna account readiness
+
+After saving SVAAR_BOLNA_API_KEY and SVAAR_BOLNA_AGENT_ID locally, run:
+
+```sh
+uv run --locked python -m svaar.voice.smoke
+```
+
+This makes two authenticated GET requests to Bolna's account and configured-agent
+endpoints. It prints only readiness flags, never balances, prompts or credentials.
+A successful exit requires positive credit, available concurrency, a processed
+agent and a conversation task. It places no calls and changes no configuration.
+The account/agent checks passed on October 24, 2026. Turn delivery remains
+unverified: this command cannot establish a working Svaar bridge, webhook,
+telephone connection or end-to-end voice flow.
+
+
+### Bolna status receipt endpoint
+
+POST /api/v1/voice/status is implemented for minimal execution lifecycle receipts.
+Set a separate random SVAAR_VOICE_STATUS_SECRET of at least 32 characters locally.
+Blank disables ingress with 503. In Bolna's webhook configuration, the custom
+X-Svaar-Voice-Status-Secret header must match this value. No hosted configuration
+has been changed automatically.
+
+The endpoint also requires the actual peer to be one of Bolna's documented IPs:
+13.203.39.153, 13.126.9.249 or 13.202.133.53. Run Uvicorn with
+--no-proxy-headers, as the image does. Forwarded headers are ignored by the handler.
+The normal app rejects tunneled peers. For local Cloudflare delivery, use only
+the dedicated restricted listener described below.
+
+Only an execution already recorded on a Svaar call, with a matching provider
+agent, is accepted. Migration 0011 adds atomic execution/status dedupe metadata.
+Stale progress and later callbacks cannot reopen a terminal call. Unknown status
+labels are recorded and ignored. Request bodies are bounded to 1 MiB; transcripts
+and extractions are discarded, not logged or retained.
+
+This endpoint records transport closure only. Completed-call classification,
+claim/evidence updates, operator balance alerts, transcript retention and the
+authenticated conversation-turn bridge remain pending. No real callback
+delivery or telephone call has been verified.
+
+Contract: https://www.bolna.ai/docs/post-call/polling-call-status-webhooks
+
+
+### Failed-call private follow-ups
+
+Authenticated no-answer, busy, failed, canceled, stopped and error receipts now
+queue one generic private chat notification per call through the existing outbox.
+The callback and notification commit together; enqueue exceptions roll back both
+for safe provider redelivery. A missing or ambiguous verified private conversation
+queues nothing. Outbox delivery still rechecks the recipient binding.
+
+This does not send directly, verify a phone, infer claim status or redial.
+Completed calls and balance-low do not use this failure notifier. Operator
+balance alerts remain pending. Real callback and notification delivery are still
+unverified; offline tests use synthetic provider data and isolated PostgreSQL.
+
+
+### Internal voice reference resolution
+
+ReferencedTurnRunner resolves a private placement reference by its stored hash,
+requires provider execution/agent receipts and delegates to the existing guarded
+runner. The authenticated transport must supply a stable zero-based turn index.
+The resolver accepts no asserted caller, organization or mission.
+
+This is an internal boundary, not an exposed Bolna endpoint. The provider's
+delivery of the reference and retry identity remains unverified. Do not substitute
+model-generated counters or utterance hashes for transport retry identifiers.
+A public HTTPS ingress and verified proxy/IP handling are also still pending.
+
+
+### Local Cloudflare status tunnel
+
+The dedicated create_status_ingress factory exposes only the exact POST
+/api/v1/voice/status route. It has no docs, health, operator, GitHub or turn routes
+and starts no model runtime. It reuses the same database, callback processing and
+outbox composition; this is a restricted entry point for the modular monolith,
+not a new independently deployed business service.
+
+Prerequisites: cloudflared installed, local database migrated, and a separate
+SVAAR_VOICE_STATUS_SECRET saved locally. The factory refuses startup without it.
+From the project directory, run in terminal 1:
+
+```sh
+uv run --locked uvicorn svaar.app:create_status_ingress --factory --host 127.0.0.1 --port 8001 --no-access-log --no-proxy-headers
+```
+
+In terminal 2, when ready to expose that restricted listener:
+
+```sh
+cloudflared tunnel --url http://127.0.0.1:8001
+```
+
+Keep both terminals running. The printed HTTPS URL is temporary. Do not point
+this tunnel at the main app on port 8000. Do not enable proxy headers or bind the
+restricted listener to 0.0.0.0. Stop either process with Ctrl+C when finished.
+No automatic tunnel launch or provider configuration is part of application startup.
+
+This listener trusts the local Mac and its cloudflared process. It accepts only
+a direct 127.0.0.1 peer, exactly one CF-Connecting-IP header matching a documented
+Bolna IP, and the independent callback secret. It ignores X-Forwarded-For.
+A local process that knows the secret can impersonate the connector: local host
+trust is explicit. Do not insert other proxies or Workers into this setup.
+The standard application continues to ignore Cloudflare client-IP headers.
+
+Cloudflare documents CF-Connecting-IP as the client address delivered to the
+origin. This trust applies only to traffic delivered by your local cloudflared
+connector, not arbitrary headers on public/direct requests:
+https://developers.cloudflare.com/fundamentals/reference/http-headers/
+
+Once the tunnel runs, the intended Bolna webhook URL is:
+https://YOUR-TUNNEL-HOST/api/v1/voice/status
+Its custom X-Svaar-Voice-Status-Secret header must match the saved local secret.
+Configure the hosted agent manually only when ready. A browser request cannot
+test acceptance because its source is not a Bolna IP. Unknown executions, including
+dashboard samples without a stored Svaar call receipt, deliberately return 404.
+Public delivery and real source-header behavior remain unverified until tested.
+The conversation-turn bridge remains separate and incomplete.
