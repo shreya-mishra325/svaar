@@ -1,6 +1,6 @@
 # Svaar anomalies and open integration questions
 
-Last reviewed: 2026-10-21 (Asia/Calcutta).
+Last reviewed: 2026-10-23 (Asia/Calcutta).
 
 ## How to use this log
 
@@ -18,11 +18,22 @@ do not silently delete them. Do not paste secrets or sensitive payloads.
 - Status: Open; intentional scaffold limitation.
 - Evidence: `src/svaar/gateway.py` exits with code 2 without `--check`.
   `compose.yaml` puts the service behind the `gateway` profile.
-- Impact: No listener, outbox sender or polling jobs run. The successful diagnostic
+- Impact: No live listener, outbox sender or polling jobs run. The successful diagnostic
   proves configuration/database access only, not chat availability.
 - Next action: Implement the agent/jobs composition, transport shutdown and runtime
   health reporting before enabling the long-running service.
 - Owner: Unassigned.
+
+- Update 2026-10-23: A durable ChatRuntime and OutboxSender now exist independently
+  of providers; API composition creates the coordinator when LLM is configured.
+  Nothing starts a live listener or sends automatically.
+- Subsequent update 2026-10-23: Gateway composition now wires polling, persistent
+  stream cursor, chat processing, outbox/receipt workers and SIGTERM/SIGINT cleanup.
+  --status checks heartbeat freshness independently of API readiness; Compose uses
+  it for health. Fake-provider tests and real PostgreSQL cover these paths.
+  Missing configuration prevents normal startup. The subsequent approved MVP
+  policy below removes the separate sender-ID contract gate (A-011).
+  Live channel acceptance remains open; no keys are fabricated.
 
 ## A-002: External provider contracts remain unverified
 
@@ -51,6 +62,26 @@ do not silently delete them. Do not paste secrets or sensitive payloads.
   turn mode and call-reference delivery remain unverified. Do not place a test
   call without explicit authorization and a specified recipient.
 
+- Update 2026-10-23: User selected Caspian hosted Telegram, superseding the
+  pending choice. Public deployed OpenAPI is version 0.1.0; current SDK main
+  advertises a 1.0 rewrite. The adapter uses documented REST via existing httpx,
+  not assumed SDK constructors. Authenticated GET /v1/events returned 200; field
+  names confirmed data.message nesting, ordered seq and stable message IDs in
+  the schema. No message content, sender values or credentials were printed.
+  Source references: https://api.trycaspianai.com/openapi.json and
+  https://github.com/TryCaspian/caspian-sdk/blob/718a96d6d04cb76c7ccce942d2532fd4adbfd545/server/src/comm_gateway/providers/telegram.py.
+- Remaining: The saved .env contains the key/base URL, but Telegram connection
+  ID/address are absent. A read-only connection probe awaits those saved fields.
+  Delivery POST/receipt behavior has synthetic tests only; no outbound message
+  was authorized or sent. Stable sender identity is a separate blocker (A-011).
+  Supported polling needs no Svaar public webhook route; webhook secret is unused.
+
+- Subsequent acceptance 2026-10-23: After the user saved the connection fields,
+  the read-only Caspian probe returned connection_verified=true, poll_verified=true,
+  private_text_messages_in_sample=0, sender_identity_verified=false,
+  outbound_delivery_verified=false, messages_sent=0. Connection credentials are
+  no longer a blocker. This supersedes the missing-field observation above.
+
 ## A-003: Feature configuration names are not active settings
 
 - Status: Open; intentional scaffold limitation.
@@ -68,6 +99,11 @@ do not silently delete them. Do not paste secrets or sensitive payloads.
   passed only to app/gateway, not migrations. Jev/Bolna/channel settings still
   await their feature composition. Local credential absence is tracked in A-010.
 - Owner: Unassigned.
+
+- Update 2026-10-23: Caspian base URL, key, Telegram connection ID and bot address
+  are now optional validated settings. Explicit adapter construction/probe requires
+  all four; partial values do not start a listener. Compose passes them to gateway
+  only. Existing direct Telegram token, email/Slack/Discord IDs remain unused.
 
 ## A-004: Upstream test-client deprecation warning
 
@@ -140,7 +176,7 @@ do not silently delete them. Do not paste secrets or sensitive payloads.
 ## A-008: Chat LLM selection and provider key setup
 
 - Status: Resolved for primary model selection and the user-reported 2026-10-20
-  native-tool probe. Fresh Mac access is pending credentials (A-010); voice
+  native-tool probe, plus the user-reported Oct 21 Mac probe below. Voice
   latency, backup models and transport connectivity are not verified.
 - Decision (2026-10-20): Chat and voice use one OpenAI-compatible adapter.
   - Primary: Groq, `SVAAR_LLM_BASE_URL=https://api.groq.com/openai/v1`,
@@ -183,8 +219,12 @@ do not silently delete them. Do not paste secrets or sensitive payloads.
   `conversation_id`, `channel` and `sender {address, name}`. The documents do not say
   whether `sender.address` is verified by the platform, so Caspian senders are treated
   as unauthenticated until Caspian confirms it (A-002). Telegram remains the fallback.
-- Next action: Restore local Groq credentials, then verify fresh account access
-  if authorized. Chat transport remains explicitly pending per A-002.
+- Subsequent user-reported Mac result, 2026-10-21: three requests,
+  native_tool_calls=true, median_response_seconds=0.5919, measurement
+  non_streaming_full_response_not_first_token. This supersedes the credential
+  absence above; no first-token/full voice metric is inferred.
+- Next action: Use the configured Groq adapter in future runtime composition.
+  Chat transport selected as Caspian Telegram on Oct 23; acceptance remains A-002.
 - Owner: Unassigned.
 
 ## A-009: Full turn deadlines need bounded synchronous handlers
@@ -197,7 +237,7 @@ do not silently delete them. Do not paste secrets or sensitive payloads.
   not established by mocked core tests.
 - Next action: Bound database/provider operations to their remaining budgets and
   test actual handler latency and uncertain external outcomes (A-006). Preserve
-  durable replies and fallback delivery through the future outbox.
+  durable replies/fallback delivery through the outbox; worker composition is pending.
 - Owner: Unassigned.
 
 ## A-010: Mac migration readiness and missing provider configuration
@@ -217,10 +257,55 @@ do not silently delete them. Do not paste secrets or sensitive payloads.
 - Remaining: Groq key/model configuration, chat-provider credentials, Bolna key/
   agent and live Jev access are absent in this Mac environment. Adding commented
   planned names alone cannot activate unimplemented adapters.
-- Next action: User restores credentials locally, never through chat; transport
-  remains pending per explicit user choice. Jev stays mock-only. No provider
+- Update 2026-10-23: Groq is restored with the user-reported Mac probe above.
+  Caspian key read access is verified; connection ID/address still need saving.
+  Transport selection is now Caspian Telegram. All 226 tests pass locally.
+- Next action: User saves connection fields locally, never through chat; resolve
+  A-011 before live enrollment. Jev stays mock-only. No provider
   requests, calls, purchases or messages were made during these checks.
 - Owner: Local credentials supplied by the user; no provider/team owner assigned.
+
+## A-011: Caspian Telegram sender identity is not stable enough for verified binding
+
+- Status: Accepted MVP limitation by explicit user decision on 2026-10-23;
+  no longer a startup/enrollment blocker. See the approved policy below.
+- Evidence: Public TelegramProvider parse_update at source commit
+  718a96d6d04cb76c7ccce942d2532fd4adbfd545 uses username when present, otherwise
+  the numeric Telegram user ID. Public Participant schema exposes only address/
+  name; it does not expose a separate immutable user ID or identity assurance.
+  Deployment equivalence to that source commit has not been established.
+- Impact: A mutable username is not a safe long-lived principal key. A signed
+  Telegram webhook authenticates delivery, but does not make usernames immutable.
+  Display names, bot addresses and project API keys do not identify the human.
+- Historical behavior before the approved policy: Adapter marked sender_authenticated=false; only fresh private
+  Telegram text is normalized. No enrollment, binding creation or business tools
+  are wired through the live adapter. Poll and delivery contracts use mock tests.
+- Follow-up: A stable numeric sender ID remains a future improvement, not an MVP
+  prerequisite. The approved private-address binding policy is documented below.
+  Provider provisioning and webhook changes were not performed.
+- Owner: Provider contract clarification required; no individual assigned.
+
+## A-012: Durable chat state extensions and conservative recovery
+
+- Status: Open; implemented design extensions recorded for review, not an observed
+  duplicate-execution failure. All 246 tests pass locally with fake providers.
+- Evidence: PLAN.md lists received/processed/failed inbound states. Migration 0003
+  adds processing/unknown so a crash after tool execution cannot silently replay.
+  It also adds connection IDs for route isolation, payload hashes for conflicting
+  duplicates, ordered message positions, outbox ordinals and pending/sending/
+  queued/sent/failed/unknown states for receipts and uncertain delivery.
+- Policy: Received records are resumable. Processing/unknown requires review.
+  A model timeout returning a fixed fallback completes the inbound reply normally.
+  Outbound sending/unknown never resends automatically; only explicit known-safe
+  rejections can retry, with bounded backoff. Queued acceptance is not delivery.
+- Evidence: Tests cover real PostgreSQL enrollment, duplicate/concurrent inbound
+  messages, cross-org/thread isolation, locks surviving commits, post-tool crashes,
+  outbox concurrency and uncertain sends. Invite commands and confirmation values
+  are excluded from later history; secret tickets are persisted only in the outbox.
+- Remaining: Operator reconciliation workflow, trusted live sender identity,
+  live voice composition are not present.
+  Crash safety does not establish exactly-once external effects (A-006).
+- Owner: Team review; no individual assigned.
 
 ## Resolved entries
 
@@ -231,3 +316,15 @@ do not silently delete them. Do not paste secrets or sensitive payloads.
 
 When resolving an entry, retain its ID, add the resolution date, relevant files
 and the specific check or external evidence establishing resolution.
+
+### Approved MVP sender policy, 2026-10-23
+
+The user explicitly removed the separate verified stable sender-ID contract
+requirement. This supersedes earlier A-011 startup/enrollment blocker statements
+in this document. Caspian's authenticated API supplies the private sender address;
+the adapter now marks eligible private messages sender_authenticated=true.
+Invite enrollment, organization/role checks, confirmation gates, private-message
+filtering and generic rejection of unauthenticated transport input remain enforced.
+Mutable username changes or reassignment can affect bindings; this is an accepted
+MVP limitation, not a verified immutable-ID guarantee. No live gateway, messages
+or calls were started for this change. Live channel acceptance remains pending.

@@ -1,6 +1,6 @@
 # Svaar phase checkpoints
 
-Last reviewed: 2026-10-21 (Asia/Calcutta).
+Last reviewed: 2026-10-23 (Asia/Calcutta).
 
 ## How to use this checklist
 
@@ -23,9 +23,11 @@ reading order in agent tasks; these documents are not automatically loaded.
 Current position: Phase 0 is complete for local infrastructure. Phase 1 is in
 progress: its local identity, action gate, confirmation and decision-policy work is
 verified. Phase 2 has a tested shared agent core and a standalone mocked Jev
-adapter, but no transport, durable chat runtime or live voice composition. The
-2026-10-20 Groq native-tool probe is user-reported historical evidence, not a
-fresh Mac provider check. Phase 1 and Phase 2 remain incomplete.
+adapter. A standalone Caspian Telegram transport and durable chat coordinator/
+outbox now exist. Gateway polling/cursor/health composition is wired with fake-provider
+coverage; live provider activation and voice composition remain pending. Groq probes on Oct 20 and Oct 21 are
+user-reported evidence; Caspian authenticated event access was checked Oct 23.
+Phase 1 and Phase 2 remain incomplete; A-011 is an accepted MVP limitation.
 
 ## Phase 0: Engineering foundation
 
@@ -49,7 +51,7 @@ files: src/svaar/, tests/, migrations/, compose.yaml, Dockerfile, README.md and
 .github/workflows/ci.yml. This is historical local evidence, not remote CI or
 production verification. Owner: not assigned in this document.
 
-Limits: gateway listener/outbox/jobs remain absent (A-001); operator, policy and
+Limits: gateway listener/jobs remain absent and outbox is not running (A-001); operator, policy and
 LLM settings are active but other provider settings remain planned (A-003).
 The upstream test-client warning remains (A-004).
 
@@ -126,18 +128,31 @@ Target: Oct 20 to 21. Prerequisites: identity/action gate and selected transport
 
 - [ ] Phase complete.
 - [ ] Implement transport protocol and the chosen authenticated chat adapter.
-  On 2026-10-21 the user explicitly kept the transport decision pending. Do not
-  silently select Telegram or enable Caspian; provider-independent work can proceed.
+  On 2026-10-21 selection was pending. Superseded on 2026-10-23: user selected
+  Caspian hosted Telegram. ChannelTransport and a standalone HTTP adapter are
+  implemented with 31 offline tests. The approved MVP policy trusts private sender
+  addresses for invite enrollment (A-011); no separate stable-ID contract is
+  required. Durable processing and gateway composition exist. Live end-to-end
+  channel acceptance remains pending.
 - [ ] Implement durable inbound dedupe, retryable failures and thread/call memory.
+  ChatRuntime now implements scoped private chat history and durable dedupe with
+  received/processing/processed/unknown states. Received work can resume; uncertain
+  execution never retries automatically. Call memory and reconciliation tooling
+  remain pending. See A-012 for the state/column additions to PLAN.md.
 - [x] Verify chat LLM native tool calling; implement the bounded adapter.
   User-reported Groq openai/gpt-oss-20b probe on 2026-10-20: three requests,
   native_tool_calls=true, median full non-streaming response 0.516 seconds.
-  No first-token or full voice-latency claim. Mac credentials remain unset (A-010).
+  On Oct 21 the user supplied a fresh Mac smoke result: three requests, native
+  tools true, median full response 0.5919 seconds. Mac Groq setup is restored.
+  No first-token or full voice-latency claim is made.
 - [ ] Implement chat/voice profiles, pre-execution round/call limits and deadlines.
   Core profiles, limits and absolute inference deadlines are implemented/tested.
   Full synchronous provider-handler latency remains an acceptance item (A-009).
 - [x] Generate registry-based tool policy; dispatch every tool through actions.
-- [ ] Implement durable outbox sending with receipt/failure state.
+- [x] Implement durable outbox sending with receipt/failure state.
+  Standalone worker tested with fake transports: safe rejection retries/backoff,
+  recipient recheck, concurrent claiming, queued receipts and unknown outcomes.
+  Live outbound acceptance and gateway worker startup remain pending.
 - [ ] Implement and inject TurnRunner without agent/voice implementation imports.
   AgentLoop exists and API composition is optional; trusted call-ID resolution
   and the run_turn binding are not implemented.
@@ -146,6 +161,10 @@ Target: Oct 20 to 21. Prerequisites: identity/action gate and selected transport
   transport wiring remain pending; unconfigured voice gates request clarification.
 - [ ] Replace gateway refusal with real runtime composition, shutdown and runtime
   health reporting; API readiness is not listener health.
+  Composition, durable page cursors, outbox/receipt coordination, SIGTERM/SIGINT
+  shutdown and --status heartbeat checks are implemented with fake-provider tests.
+  Startup now uses the approved private sender-address policy.
+  Live acceptance remains unticked; missing future keys do not block offline work.
 
 Exit check: invite enrollment, whoami and a read tool work in chat; a resent message
 has one effect; unusable/ambiguous speech cannot invoke tools; deadlines and limits
@@ -156,7 +175,54 @@ PostgreSQL, including agent-loop and Jev HTTP/policy/audit scenarios. Shared
 implementation: agent/{llm,loop,profiles,prompts,inference,smoke}.py and
 decisions/jev.py. Jev uses synthetic HTTP responses only. No provider was called.
 Only whoami is registered as a business tool; confirm_action is dispatcher-owned.
-No chat listener, durable inbound/memory/outbox storage or job runtime exists.
+At that checkpoint no chat listener, durable inbound/memory/outbox storage or job runtime existed.
+
+Evidence on 2026-10-23: Caspian public OpenAPI fetched successfully (deployed
+version 0.1.0); authenticated GET /v1/events returned 200 with an array and the
+documented event/data/message envelope. Only field names/counts were printed.
+Configured Telegram connection ID/address were missing from the saved .env, so
+no connection-specific acceptance is claimed. Public source at commit
+718a96d6d04cb76c7ccce942d2532fd4adbfd545 prefers a mutable username for sender
+address, so sender_authenticated remains false. No messages were sent.
+Implemented: agent/{transport,caspian,caspian_smoke}.py, optional Caspian settings,
+gateway-only Compose credentials, offline tests and operator documentation.
+Final validation: 226 tests passed against isolated PostgreSQL, Ruff lint/format,
+migration drift and gateway-profile Compose checks passed; A-004 remains. Initial
+database tests failed while Docker was stopped, then passed after Docker started.
+At that adapter checkpoint no schema change or durable runtime was introduced.
+
+Subsequent evidence on 2026-10-23: user authorized continuing available,
+provider-independent work. Added agent/{models,runtime,outbox}.py and migration
+0003; API composition exposes an optional ChatRuntime without starting a listener.
+Fake authenticated enrollment -> whoami -> durable delivery and duplicate handling
+are covered through the real dispatcher. Tests cover conversation/org isolation,
+locks surviving dispatcher commits, ordered history, invite/nonce exclusion,
+post-execution crashes, concurrent sends, recipient revocation, safe rejection
+retries/backoff and receipt reconciliation. All 246 tests passed with real isolated
+PostgreSQL and fake provider adapters. Ruff lint/format passed. Test DB downgrade
+0003 -> 0002 -> 0003 and migration drift check passed; development DB upgraded to
+0003 with clean drift check. Database verification used port 5434 explicitly while
+the local editor configuration was being updated. No .env values were changed.
+The saved connection fields later passed Caspian's read-only smoke: connection
+and polling true, identity/outbound false, messages_sent=0. A-011 is now an accepted MVP limitation.
+Jev remains mocked; Bolna and incident/claim/negotiation/replay work remain pending.
+Phase 2 is not complete: durable polling cursor/worker startup, trusted live sender
+identity and voice binding remain required.
+
+Further evidence on 2026-10-23: wired GatewayWorker polling, cursor persistence,
+stream ownership, ChatRuntime/outbox/receipt processing and bounded failure backoff.
+Added gateway_cursors via migration 0004 for stream position and heartbeat. CLI
+--check remains infrastructure-only; --status reports fresh ready/processing vs
+not-started/stale/blocked/error/stopped. Opt-in Compose health now uses --status.
+Originally normal startup required a separate verified sender-ID contract.
+The subsequent user decision below removes that gate; complete channel and
+provider configuration is still required. API/voice behavior is unchanged.
+All 256 tests passed against isolated PostgreSQL (10 new gateway checks); lint,
+format and Compose validation passed. Test migration 0004 -> 0003 -> 0004 and
+drift checks passed; development DB is 0004. The A-004 warning remains. No live
+gateway process, outbound messages, model requests or calls were started.
+Remaining Phase 2 acceptance: live channel flow under the approved address policy,
+trusted call TurnRunner composition, real handler latency and operator recovery.
 
 ## Phase 3: Mission-bound voice transport
 
@@ -280,3 +346,15 @@ Target: Oct 31, morning; exact cutoff must be confirmed by the team.
 Exit check: team has evidence of successful submission before the cutoff.
 
 Evidence: Pending.
+
+### Approved MVP sender policy, 2026-10-23
+
+The user explicitly removed the separate verified stable sender-ID contract
+requirement. This supersedes earlier A-011 startup/enrollment blocker statements
+in this document. Caspian's authenticated API supplies the private sender address;
+the adapter now marks eligible private messages sender_authenticated=true.
+Invite enrollment, organization/role checks, confirmation gates, private-message
+filtering and generic rejection of unauthenticated transport input remain enforced.
+Mutable username changes or reassignment can affect bindings; this is an accepted
+MVP limitation, not a verified immutable-ID guarantee. No live gateway, messages
+or calls were started for this change. Live channel acceptance remains pending.
