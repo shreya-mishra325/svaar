@@ -381,9 +381,16 @@ Evidence: Pending.
 Target: Oct 29. Prerequisite: timeline and validator-approved proposal.
 
 - [ ] Phase complete.
-- [ ] Replay one corrected failed-pipeline sequence in isolated state.
-- [ ] Use fake/recorded adapters only; results are explicitly simulated.
-- [ ] Prove replay cannot write observed events or call GitHub, Jira or Bolna.
+- [x] Replay one corrected failed-pipeline sequence in isolated state.
+  Scope: operator-supplied step scenario (recorded outcomes plus fixed steps);
+  steps are not yet derived from real workflow logs (needs the App client).
+- [x] Use fake/recorded adapters only; results are explicitly simulated.
+  A pure in-memory simulator; every result carries kind=simulated and a label
+  stating it is not evidence of production recovery.
+- [x] Prove replay cannot write observed events or call GitHub, Jira or Bolna.
+  Tests: static import scan of svaar.replay, httpx blocked at runtime, events
+  count unchanged, incident unchanged, and a CHECK constraint refusing any
+  replay_runs row whose kind is not simulated (migration 0013).
 - [ ] Optional: export an exception draft with tier-2 approval.
 
 Exit check: corrected sequence produces labelled simulation with no live effects.
