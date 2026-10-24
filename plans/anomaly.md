@@ -535,3 +535,23 @@ acceptance. Earlier notes that code delivery was absent are historical.
 - Next action: decide an owner rule (per repository mapping, on-call rotation or
   first acknowledger) before Phase 5 escalation.
 - Owner: Unassigned.
+
+## A-019: Negotiation constraints are supplied per request, not stored per agent
+
+- Status: Open; design decision needing team awareness, not an observed defect.
+- Evidence: src/svaar/resolution/ and migration 0012 (2026-10-24).
+- Plan difference: PLAN.md lists a constraints table (owner_agent, rule). The
+  implementation takes typed constraints with each negotiation and stores a JSON
+  snapshot on the negotiation row, so a stored verdict stays reproducible after
+  rules change. There is no standing per-organization rule store yet.
+- Behavior: the release agent only moves the start past freezes and never adds
+  approvals; capacity moves past busy slots and maintenance; staffing reassigns
+  to the first engineer, alphabetically, with no staffing violation. At most five
+  rounds; a proposal that cannot progress ends rejected. Only the validator can
+  accept. The demo conflict (freeze, off-shift engineer, deploy slot) is rejected
+  and its revision accepted in round two.
+- Remaining: a standing constraint store, a start_negotiation chat tool (it needs
+  trusted constraints rather than model-supplied ones), optional Jev ranking,
+  and the approve_exception tier-2 flow.
+- Evidence: 436 tests passed (22 new); drift clean; dev DB at 0012.
+- Owner: Unassigned.

@@ -359,8 +359,12 @@ Evidence: Pending.
 Target: Oct 28. Prerequisites: action gate, confirmations, claims and scoped adapters.
 
 - [ ] Phase complete.
-- [ ] Implement release-freeze, on-call staffing and deploy/CI capacity constraints.
-- [ ] Implement bounded proposal/revision rounds and deterministic validation.
+- [x] Implement release-freeze, on-call staffing and deploy/CI capacity constraints.
+  Scope: typed constraints supplied per negotiation and snapshotted (A-019).
+- [x] Implement bounded proposal/revision rounds and deterministic validation.
+  Scope: deterministic agents, at most 5 rounds, every round persisted;
+  operator routes POST /negotiations, GET /negotiations/{id} and
+  POST /negotiations/{id}/validate. No chat tool or Jev ranking yet.
 - [ ] Implement confirmation calls with exact nonce and owner/channel/expiry checks.
 - [ ] Implement a gated CI action with durable outcomes and no blind risky retries.
 - [ ] Optional: Jira read/create adapter, with creation gated as tier 2.
