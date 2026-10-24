@@ -305,7 +305,10 @@ Target: Oct 24 to 25. Prerequisites: scoped identity, chat delivery and incident
   acknowledge_incident tools and the operator timeline route exist (2026-10-24).
   The fingerprint is repository + workflow + branch; the planned log-tail hash
   needs the GitHub App client to fetch logs, so this item stays open.
-- [ ] Deliver owner alerts through the outbox; do not automatically rerun workflows.
+- [x] Deliver owner alerts through the outbox; do not automatically rerun workflows.
+  Scope: opening an incident queues one idempotent private-chat alert per
+  ops/lead/admin principal in the same transaction (A-018 recipient policy).
+  OutboxSender delivers; live delivery is unverified. No reruns exist.
 
 Exit check: a failing demo workflow produces one scoped incident/chat alert and
 its ordered timeline is available through chat and voice. Signature, unmapped-repo

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import uuid
 from datetime import UTC
 from typing import Literal
@@ -10,9 +11,13 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationErro
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from svaar.incidents.models import ObservedEvent
+from svaar.agent.notifications import enqueue_private_notification
+from svaar.incidents.alerts import opened_alerts
+from svaar.incidents.models import Incident, ObservedEvent
 from svaar.incidents.service import group_observation
 from svaar.integrations.models import RepoMapping, WebhookDelivery
+
+logger = logging.getLogger(__name__)
 
 
 class GithubPayloadError(Exception):
@@ -122,6 +127,21 @@ def _normalize(event_type: str, raw: bytes) -> tuple[_Workflow | None, dict | No
         raise GithubPayloadError("Invalid webhook payload") from None
 
 
+def _queue_opened_alerts(session: Session, incident: Incident) -> None:
+    """Queue chat alerts with the incident, atomically; never send or rerun anything."""
+    queued = sum(
+        enqueue_private_notification(
+            session,
+            org_id=incident.org_id,
+            principal_id=alert.principal_id,
+            key=alert.key,
+            body=alert.body,
+        )
+        for alert in opened_alerts(session, incident)
+    )
+    logger.info("incident_alerts_queued count=%d", queued)
+
+
 def ingest_delivery(
     sessions: sessionmaker[Session],
     delivery_id: uuid.UUID,
@@ -190,7 +210,9 @@ def ingest_delivery(
             )
             session.add(observed)
             session.flush()
-            group_observation(session, observed)
+            grouped = group_observation(session, observed)
+            if grouped is not None and grouped.opened:
+                _queue_opened_alerts(session, grouped.incident)
         receipt.state, receipt.reason = "accepted", None
         receipt.org_id, receipt.event_id = mapping.org_id, observed.id
         session.add(receipt)

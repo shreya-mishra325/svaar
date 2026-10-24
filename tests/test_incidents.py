@@ -15,11 +15,12 @@ from svaar.actions.dispatcher import ApprovalPolicy, Dispatcher
 from svaar.actions.missions import Mission
 from svaar.actions.models import ToolStatus
 from svaar.actions.registry import Channel, ToolContext
+from svaar.agent.models import Conversation, InboundRecord, OutboxMessage
 from svaar.app import create_app
 from svaar.config import Settings
 from svaar.identity.models import Org, Role
 from svaar.incidents import service
-from svaar.incidents.models import Incident, IncidentEvent, IncidentState
+from svaar.incidents.models import Incident, IncidentEvent, IncidentState, ObservedEvent
 from svaar.integrations.github import ingest_delivery
 from svaar.integrations.models import RepoMapping
 
@@ -257,3 +258,76 @@ def test_operator_timeline_route(session_factory, org_id, operator_client):
     assert body["incident"]["failure_count"] == 1 and len(body["events"]) == 1
     missing = operator_client.get(f"/api/v1/incidents/{uuid.uuid4()}/timeline", headers=auth)
     assert missing.status_code == 404
+
+
+# Owner alerts through the durable outbox.
+
+
+def chat_route(session, org, role, address):
+    """A principal with one processed private conversation, as after enrollment."""
+    person = make_principal(session, org, role, bindings=(("fake", address),))
+    conversation = Conversation(
+        org_id=org.id,
+        principal_id=person.id,
+        channel="fake",
+        connection_id="connection-1",
+        thread_id=f"thread-{address}",
+    )
+    session.add(conversation)
+    session.flush()
+    session.add(
+        InboundRecord(
+            conversation_id=conversation.id,
+            channel="fake",
+            connection_id="connection-1",
+            external_message_id=f"anchor-{address}",
+            sender_address=address,
+            payload_hash="0" * 64,
+            state="processed",
+        )
+    )
+    session.flush()
+    return person.id
+
+
+def outbox(sessions):
+    with sessions() as session:
+        return list(session.scalars(select(OutboxMessage).order_by(OutboxMessage.created_at)))
+
+
+def test_new_incident_alerts_eligible_roles_once(session_factory, org_id):
+    with session_factory.begin() as session:
+        org = session.get(Org, org_id)
+        lead = chat_route(session, org, Role.LEAD, "lead")
+        chat_route(session, org, Role.DEV, "dev")  # devs are not alerted
+        make_principal(session, org, Role.ADMIN)  # no chat route: skipped safely
+    deliver(session_factory, run(run_id=1))
+    deliver(session_factory, run(run_id=2, at="2026-10-23T10:05:00Z"))  # joins, no new alert
+    rows = outbox(session_factory)
+    assert len(rows) == 1
+    [incident] = incidents(session_factory)
+    assert rows[0].notification_key == f"incident-opened:{incident.id}:{lead}"
+    assert rows[0].body.startswith("CI failure: Deploy on main failed.")
+    assert rows[0].state == "pending"
+
+
+def test_alerts_stay_inside_the_incident_org(session_factory, org_id):
+    with session_factory.begin() as session:
+        chat_route(session, make_org(session, "Other"), Role.ADMIN, "outsider")
+    deliver(session_factory, run())
+    assert outbox(session_factory) == []
+
+
+def test_alert_queue_failure_rolls_back_the_observation(session_factory, org_id, monkeypatch):
+    with session_factory.begin() as session:
+        chat_route(session, session.get(Org, org_id), Role.OPS, "ops")
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("outbox unavailable")
+
+    monkeypatch.setattr("svaar.integrations.github.enqueue_private_notification", broken)
+    with pytest.raises(RuntimeError):
+        deliver(session_factory, run())
+    assert incidents(session_factory) == [] and outbox(session_factory) == []
+    with session_factory() as session:
+        assert session.scalar(select(func.count()).select_from(ObservedEvent)) == 0

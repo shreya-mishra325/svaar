@@ -43,13 +43,33 @@ def enqueue_voice_fallback(
     call_id: uuid.UUID,
     turn_index: int,
 ) -> bool:
-    """Queue once to a single verified private conversation; ambiguous routes refuse.
+    """Queue the generic call follow-up once per call turn.
 
     The principal and organization come from the resolved call, never model text.
-    Locking the processed inbound anchor reserves the next outbox ordinal without
-    fabricating inbound messages or changing the delivery adapter.
     """
-    key = f"voice-fallback:{call_id}:{turn_index}"
+    return enqueue_private_notification(
+        session,
+        org_id=org_id,
+        principal_id=principal_id,
+        key=f"voice-fallback:{call_id}:{turn_index}",
+        body=FOLLOW_UP,
+    )
+
+
+def enqueue_private_notification(
+    session: Session,
+    *,
+    org_id: uuid.UUID,
+    principal_id: uuid.UUID,
+    key: str,
+    body: str,
+) -> bool:
+    """Queue once to a single verified private conversation; ambiguous routes refuse.
+
+    Locking the processed inbound anchor reserves the next outbox ordinal without
+    fabricating inbound messages or changing the delivery adapter. The key makes
+    the notification idempotent; the body must contain no secrets or transcripts.
+    """
     existing = _existing_notification(session, key, org_id, principal_id)
     if existing is not None:
         return existing
@@ -103,7 +123,7 @@ def enqueue_voice_fallback(
         OutboxMessage(
             inbound_id=anchor.id,
             ordinal=ordinal,
-            body=FOLLOW_UP,
+            body=body,
             notification_key=key,
         )
     )

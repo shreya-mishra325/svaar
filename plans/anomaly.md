@@ -517,3 +517,21 @@ acceptance. Earlier notes that code delivery was absent are historical.
   fingerprint (needs the App client), owner mapping and outbox alerts.
   Evidence: 411 tests passed (15 new), drift check clean, dev DB at 0011.
   Synthetic deliveries only; no live GitHub requests.
+
+## A-018: Incident alert recipients stand in for a missing repository owner
+
+- Status: Open; design decision needing team review, not an observed defect.
+- Evidence: src/svaar/incidents/alerts.py, src/svaar/integrations/github.py
+  (2026-10-24). PLAN.md says the owner is alerted, but no owner field exists on
+  repositories, mappings or incidents.
+- Current handling: opening an incident queues one private-chat alert to every
+  principal with role ops, lead or admin in the incident's organization. Each
+  alert is keyed incident-opened:<incident>:<principal>, so redelivery never
+  repeats it. Principals without exactly one verified private route are skipped.
+  Alerts are queued in the ingest transaction; if queueing fails, the observation
+  and incident roll back together. The body names only workflow and branch.
+- Impact: a team with many leads receives several alerts; nobody is singled out
+  as owner, so escalation calls (Phase 5) still need an owner rule.
+- Next action: decide an owner rule (per repository mapping, on-call rotation or
+  first acknowledger) before Phase 5 escalation.
+- Owner: Unassigned.
