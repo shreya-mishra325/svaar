@@ -505,3 +505,15 @@ acceptance. Earlier notes that code delivery was absent are historical.
 - Evidence: 396 tests passed (37 new across this task); schema drift, test-only
   0010 -> 0008 -> 0010 round trip, Ruff and Compose passed. Development DB is 0010.
   No live provider calls or messages and no new dependency/infrastructure.
+- Update 2026-10-24: incidents and incident_events (migration 0011) group
+  observations without rewriting facts. A failure, timed_out or startup_failure
+  run opens one active incident per org and fingerprint (repository, workflow_id,
+  head_branch); later runs on that fingerprint join it. A success is linked as
+  evidence only and never resolves an incident. An advisory lock plus a partial
+  unique index serialize concurrent deliveries. Normalization now keeps optional
+  workflow_id, workflow name and head_branch. Tools get_timeline, list_incidents
+  and acknowledge_incident dispatch through actions; GET
+  /api/v1/incidents/{id}/timeline is operator-only. Remaining: log-tail
+  fingerprint (needs the App client), owner mapping and outbox alerts.
+  Evidence: 411 tests passed (15 new), drift check clean, dev DB at 0011.
+  Synthetic deliveries only; no live GitHub requests.

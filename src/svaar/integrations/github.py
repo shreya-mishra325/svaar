@@ -11,6 +11,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from svaar.incidents.models import ObservedEvent
+from svaar.incidents.service import group_observation
 from svaar.integrations.models import RepoMapping, WebhookDelivery
 
 
@@ -41,6 +42,10 @@ class _Run(_Wire):
     status: str = Field(min_length=1, max_length=32)
     conclusion: str | None
     updated_at: AwareDatetime
+    # Optional so minimal payloads stay valid; they make the incident fingerprint precise.
+    workflow_id: int | None = Field(default=None, gt=0, le=9223372036854775807, strict=True)
+    name: str | None = Field(default=None, max_length=200)
+    head_branch: str | None = Field(default=None, max_length=255)
 
 
 class _Workflow(_Wire):
@@ -104,6 +109,9 @@ def _normalize(event_type: str, raw: bytes) -> tuple[_Workflow | None, dict | No
             "head_sha": run.head_sha,
             "status": run.status,
             "conclusion": run.conclusion,
+            "workflow_id": run.workflow_id,
+            "workflow_name": run.name,
+            "head_branch": run.head_branch,
         }
         key = (
             f"workflow_run:{event.repository.id}:{run.id}:"
@@ -182,6 +190,7 @@ def ingest_delivery(
             )
             session.add(observed)
             session.flush()
+            group_observation(session, observed)
         receipt.state, receipt.reason = "accepted", None
         receipt.org_id, receipt.event_id = mapping.org_id, observed.id
         session.add(receipt)

@@ -301,6 +301,10 @@ Target: Oct 24 to 25. Prerequisites: scoped identity, chat delivery and incident
 - [x] Persist append-only observed events with provenance and stable external IDs.
   Scope: normalized workflow_run observations; incident linkage remains pending.
 - [ ] Implement failure fingerprints and an ordered incident timeline.
+  Incident aggregate, grouping, ordered timeline, get_timeline/list_incidents/
+  acknowledge_incident tools and the operator timeline route exist (2026-10-24).
+  The fingerprint is repository + workflow + branch; the planned log-tail hash
+  needs the GitHub App client to fetch logs, so this item stays open.
 - [ ] Deliver owner alerts through the outbox; do not automatically rerun workflows.
 
 Exit check: a failing demo workflow produces one scoped incident/chat alert and
