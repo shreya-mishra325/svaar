@@ -74,6 +74,9 @@ Target: Oct 18 to 19. Prerequisite: Phase 0.
   and channels; record the Caspian/Telegram transport decision.
 - [ ] Verify Bolna account readiness, turn mode, call-reference delivery and one
   explicitly authorized outbound test call.
+  2026-10-24: account readiness and one authorized outbound call verified live
+  through BolnaClient (A-014). Turn mode and call-reference delivery remain
+  unverified because the agent still uses Bolna's own model, so this stays open.
 - [ ] Select Jev gateway/model and verify its actual request/response contract.
   Vercel selected; versioned-model live acceptance is pending. User approved
   mock-only development after observing that Jev is excluded from free credits.

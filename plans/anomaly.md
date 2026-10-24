@@ -388,6 +388,23 @@ or calls were started for this change. Live channel acceptance remains pending.
 - Outcome: No live authenticated provider requests, calls, messages or purchases.
   Bolna settings activate only explicit client construction; they are not forwarded
   through Compose until a process composes the provider.
+- Live evidence 2026-10-24 (user-authorized, recipient owned by the user and kept
+  out of logs, files and this document):
+  - GET /user/me: key accepted; trial account, max concurrency 2.
+  - Agent "Svaar" exists, status processed, still on Bolna's own model (Azure
+    gpt-4.1-mini) with no custom LLM endpoint, tools or status webhook.
+  - First attempts returned 400 "Trial accounts can only make calls to verified
+    phone numbers"; BolnaClient correctly raised CallRejectedError. After the
+    user verified the number in the Bolna dashboard, placement was accepted.
+  - Call 1 (execution e7bbd55c-...): initiated, ringing, busy; hangup by carrier;
+    cost 0. Call 2 (execution c220761a-...): ringing, in-progress,
+    call-disconnected, completed; hangup by callee; 41 s; cost 6.0 wallet units
+    (wallet 500.0 to 494.0); transcript present but not read or stored.
+  - latency_data.time_to_first_audio was 102.248 on a 41 s call, so its unit is
+    not seconds (likely milliseconds); still unconfirmed by Bolna documentation.
+  - Not verified: custom LLM turn mode, per-call reference delivery, status
+    webhook and Svaar answering on a call. Those need the turn/status routes,
+    a public tunnel and agent reconfiguration.
 - Owner: Unassigned.
 
 ## A-015: Phone verification core exists; private delivery and live transport remain
