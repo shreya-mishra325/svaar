@@ -150,3 +150,43 @@ def test_naive_and_reversed_times_are_rejected():
 
 def test_constraints_round_trip_through_json():
     assert Constraints.model_validate_json(BASE.model_dump_json()) == BASE
+
+
+# Negotiation: bounded, deterministic revision rounds judged by the validator.
+
+
+def test_demo_conflict_is_rejected_then_a_revision_is_accepted():
+    from svaar.resolution.negotiation import negotiate
+
+    conflict = proposal(start=at(11.5), duration_minutes=120, engineer="meera")
+    outcome = negotiate(conflict, BASE)
+    assert not outcome.rounds[0].result.valid
+    assert outcome.accepted is not None and validate(outcome.accepted, BASE).valid
+    # Release moves past the freeze, capacity past the 13:00 deploy; meera is then on shift.
+    assert outcome.accepted.start == at(14) and outcome.accepted.engineer == "meera"
+    assert outcome.rounds[1].revised_by == (Agent.RELEASE, Agent.CAPACITY)
+    assert outcome.accepted.approvals == conflict.approvals  # agents never add approvals
+
+
+def test_staffing_agent_reassigns_when_time_cannot_help():
+    from svaar.resolution.negotiation import negotiate
+
+    outcome = negotiate(proposal(engineer="nobody"), BASE)
+    assert outcome.accepted is not None and outcome.accepted.engineer == "asha"
+    assert outcome.rounds[-1].revised_by == (Agent.STAFFING,)
+
+
+def test_unresolvable_conflict_is_rejected_within_the_round_limit():
+    from svaar.resolution.negotiation import MAX_ROUNDS, negotiate
+
+    nobody = BASE.model_copy(update={"staffing": OnCallStaffing(shifts=(), min_coverage=1)})
+    outcome = negotiate(proposal(), nobody)
+    assert outcome.accepted is None and 1 <= len(outcome.rounds) <= MAX_ROUNDS
+    assert all(not r.result.valid for r in outcome.rounds)
+
+
+def test_negotiation_is_deterministic():
+    from svaar.resolution.negotiation import negotiate
+
+    conflict = proposal(start=at(11.5), duration_minutes=120, engineer="meera")
+    assert negotiate(conflict, BASE) == negotiate(conflict, BASE)
