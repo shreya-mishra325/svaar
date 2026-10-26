@@ -9,6 +9,8 @@ import svaar.decisions.models  # noqa: F401
 import svaar.identity.models  # noqa: F401
 import svaar.incidents.models  # noqa: F401
 import svaar.integrations.models  # noqa: F401
+import svaar.replay.models  # noqa: F401
+import svaar.resolution.models  # noqa: F401
 import svaar.voice.models  # noqa: F401
 from svaar.config import Settings
 from svaar.db import Base, create_database_engine

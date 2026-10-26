@@ -1,13 +1,13 @@
 """voice status receipts
 
-Revision ID: 0011
+Revision ID: 0011_voice
 Revises: 0010
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0011"
+revision = "0011_voice"
 down_revision = "0010"
 branch_labels = None
 depends_on = None

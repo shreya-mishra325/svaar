@@ -53,8 +53,10 @@ class Settings(BaseSettings):
     bolna_api_key: SecretStr | None = None
     bolna_agent_id: uuid.UUID | None = None
 
-    # GitHub inbound HMAC only; not GitHub App/API access.
+    # Independent inbound HMAC and optional standalone GitHub App read adapter.
     github_webhook_secret: SecretStr | None = None
+    github_app_id: int | None = Field(default=None, gt=0)
+    github_private_key_b64: SecretStr | None = None
 
     # Identity and approvals.
     invite_ttl_hours: int = Field(default=72, ge=1, le=720)
@@ -83,6 +85,8 @@ class Settings(BaseSettings):
     @field_validator(
         "voice_status_secret",
         "operator_token",
+        "github_app_id",
+        "github_private_key_b64",
         "github_webhook_secret",
         "bolna_api_key",
         "bolna_agent_id",
@@ -160,4 +164,26 @@ class Settings(BaseSettings):
             raise ValueError("Policy thresholds must be finite")
         if self.policy_low >= self.policy_high:
             raise ValueError("SVAAR_POLICY_LOW must be below SVAAR_POLICY_HIGH")
+        return self
+
+    @model_validator(mode="after")
+    def validate_github_app_configuration(self) -> Self:
+        """Require paired App credentials; leave installation selection to repo mappings."""
+        if (self.github_app_id is None) != (self.github_private_key_b64 is None):
+            raise ValueError("Configure GitHub App ID and base64 private key together")
+        if self.github_private_key_b64 is not None:
+            import base64
+
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
+
+            try:
+                key = serialization.load_pem_private_key(
+                    base64.b64decode(self.github_private_key_b64.get_secret_value(), validate=True),
+                    password=None,
+                )
+                if not isinstance(key, RSAPrivateKey) or key.key_size < 2048:
+                    raise ValueError("Invalid key")
+            except (ValueError, TypeError):
+                raise ValueError("Configure a valid base64 RSA private key") from None
         return self

@@ -1,11 +1,14 @@
 # Svaar phase checkpoints
 
-Last reviewed: 2026-10-24 (Asia/Calcutta).
+Last reviewed: 2026-10-26 (Asia/Calcutta).
 
 ## How to use this checklist
 
 Read rules.md, PLAN.md, this file and anomaly.md before starting work.
-PLAN.md remains the requirements source. Phase numbers, targets and exit criteria
+The incoming main version of PLAN.md is authoritative per the user's Oct 26
+instruction. The working file was verified byte-for-byte identical to it; neither
+branch had a different PLAN.md in this merge. Checkpoints record progress and
+cannot waive plan requirements. Phase numbers, targets and exit criteria
 are unchanged. A target date is not evidence of completion.
 
 Every phase separates three kinds of progress:
@@ -29,11 +32,11 @@ explicit authorization covering the action and target.
 
 ## Current position
 
-Latest implementation verification: **476 tests passed on 2026-10-24**, plus
+Latest implementation verification: **586 tests passed on 2026-10-26**, plus
 Ruff lint/format and alembic check against the isolated PostgreSQL test database.
-The database container is healthy. Migration 0011 upgrade/check passed on the
-local development database; downgrade/upgrade/check passed on the isolated test
-database. Compose validation passed. The existing Starlette warning is A-004.
+The database container is healthy. Both local databases are at revision
+0015 with clean drift checks; the merge graph was verified (A-020) and the
+latest test-only 0015 -> 0014 -> 0015 round trip passed. Compose validation passed. The existing Starlette warning is A-004.
 
 | Phase | Implementation | Offline verification | Live acceptance |
 | --- | --- | --- | --- |
@@ -41,10 +44,10 @@ database. Compose validation passed. The existing Starlette warning is A-004.
 | 1: Contracts and safety | Safety core done; provider composition partial | Core and adapter mocks passed | Provider checks incomplete |
 | 2: Shared runtime | Chat/gateway/internal voice core done; external voice binding pending | Core and persistence checks passed | Complete chat/voice flow pending |
 | 3: Voice transport | Call/challenge/follow-up core and status receipts done; turn bridge pending | Implemented scope passed | Real verification call pending |
-| 4: CI and timeline | Signed ingress/mappings/observations done; incident features missing | Ingress checks passed | Real incident/alert/timeline pending |
+| 4: CI and timeline | Ingress, incident grouping/timeline/actions and role-based alerts done; App/log fingerprint/owner mapping pending | Ingress checks passed | Real incident/alert/timeline pending |
 | 5: Claims and escalation | Not implemented | Pending | Pending |
-| 6: Resolution and confirmation | Domain flow not implemented; safety foundation reusable | Pending for domain flow | Pending |
-| 7: Replay | Not implemented | Pending | Required simulation demonstration pending |
+| 6: Resolution and confirmation | Deterministic constraints, negotiations and validator routes done; risky CI flow pending | Pending for domain flow | Pending |
+| 7: Replay | Isolated operator-supplied simulation implemented | Isolation tests passed | Required simulation demonstration pending |
 | 8: Rehearsal | Not started | Full scenario rehearsal pending | Calls, timing and recording pending |
 | 9: Submission | Not started | Final review pending | Team submission pending |
 
@@ -208,6 +211,8 @@ Target: Oct 22 to 23. Prerequisite: shared runner and identity/action boundaries
 - [x] Implement status receipt authentication, direct peer-IP checks and durable dedupe.
 - [x] Restricted Cloudflare loopback status listener with scoped edge-header checks.
 - [ ] Verify real Cloudflare ingress and implement operator balance alerts.
+- [ ] Match failed/no-answer/busy terminal call state to PLAN.md section 10 (A-021).
+- [ ] Classify completed transcripts, persist evidence and apply retention policy.
 - [ ] Wire account readiness, authorized call scheduling/limits and production placement.
 - [ ] Implement transcript retention and voice confirmation-ticket notification delivery.
 - [x] Implement a status-only tunnel entry point with operator/docs routes absent.
@@ -254,10 +259,20 @@ Target: Oct 24 to 25. Prerequisites: scoped identity, chat delivery and incident
 - [x] Raw-body HMAC ingress with bounded input, payload validation and delivery-ID dedupe.
 - [x] Atomic normalized workflow observations/receipts with stable run-transition keys.
 - [x] Append-only observations with source provenance and occurrence timestamps.
-- [ ] GitHub App authentication and REST client.
-- [ ] Incident aggregate/linkage and deterministic failure fingerprints.
-- [ ] Organization-scoped ordered incident timeline and get_timeline action.
-- [ ] Owner mapping, durable alerts and duplicate-alert prevention through the outbox.
+- [x] Standalone GitHub App RS256/token adapter and scoped repository/run reads.
+- [ ] Compose the App client into runtime with bounded lifecycle/deadlines.
+- [x] Standalone failed-workflow log download with credential-isolated storage request
+  and bounded in-memory ZIP processing.
+- [x] Incident aggregate/linkage and repository/workflow/branch grouping.
+- [x] Versioned normalized log-tail signatures and org/repo/workflow/branch fingerprint helper.
+- [x] Explicit attempt-bound enrichment with append-only digest/provenance storage
+  and provider I/O outside database transactions.
+- [ ] Compose enrichment into guarded runtime work and wire log-based grouping
+  without rewriting observed history.
+- [x] Organization-scoped ordered timeline and get_timeline/list_incidents actions.
+- [x] Idempotent opening alerts queued to same-org ops/lead/admin private routes.
+- [ ] Explicit repository owner mapping (A-018); live alert delivery remains unverified.
+- [ ] Implement the planned operator POST /incidents manual-creation route.
 - [ ] Complete the incident pipeline without automatic workflow reruns.
 
 ### Offline verification
@@ -266,8 +281,12 @@ Target: Oct 24 to 25. Prerequisites: scoped identity, chat delivery and incident
 - [x] Duplicate/conflicting/concurrent deliveries and atomic rollback checks pass.
 - [x] Unmapped repos/installations are rejected; operator mappings cannot be overwritten.
 - [x] PostgreSQL rejects observation updates/deletes; source time survives arrival reordering.
-- [ ] GitHub App/REST adapter tests.
-- [ ] Fingerprinting, incident grouping/linkage and cross-org timeline/action tests.
+- [x] Mocked App JWT/token/REST contracts, cache refresh/concurrency and org isolation.
+- [x] Synthetic workflow-log download, archive limits, credential isolation and
+  normalized/scoped signature tests.
+- [ ] Live App/log retrieval acceptance.
+- [x] Implemented grouping/linkage, occurrence-order and scoped timeline/action tests.
+- [ ] Log-tail fingerprint and explicit owner-routing tests.
 - [ ] Workflow failure -> one incident -> one owner alert -> chat/voice timeline slice.
 
 ### Live acceptance
@@ -293,7 +312,8 @@ foundations, not implemented claims or escalation.
 ### Implementation
 
 - [ ] Detect claims and perform deterministic evidence lookup with provenance.
-- [ ] Implement claim_check/escalation handlers and incident acknowledgement.
+- [x] Incident acknowledgement action is registered through the dispatcher.
+- [ ] Implement claim_check/escalation handlers and guarded scheduling.
 - [ ] Classify usable final answers and derive status from persisted evidence.
 - [ ] Preserve unverified for missing evidence, unusable speech and failed calls.
 - [ ] Guarded jobs, row claiming, durable escalation intents and deterministic call limits.
@@ -324,13 +344,16 @@ Target: Oct 28. Prerequisites: action gate, confirmations, claims and scoped ada
 
 - [ ] Phase complete.
 
-The tested confirmation/action gate is reusable; negotiation and real CI execution
-are not implemented by that foundation alone.
+The confirmation/action gate remains reusable. Main adds deterministic negotiation
+and validation routes; this does not establish the real confirmed CI action flow.
 
 ### Implementation
 
-- [ ] Release-freeze, on-call staffing and deploy/CI capacity constraints.
-- [ ] Bounded proposal/revision rounds and deterministic validator.
+- [x] Request-supplied release-freeze, staffing and deploy/CI constraints (A-019).
+- [x] Bounded deterministic revisions, persisted rounds and operator validation routes.
+- [ ] Implement the planned standing constraints store or obtain an explicit plan
+  change approving request-scoped snapshots (A-019).
+- [ ] Wire start_negotiation through the agent with trusted constraints.
 - [ ] Confirmation-call domain flow with exact owner/channel/nonce/expiry checks.
 - [ ] Gated CI action with durable outcomes and no blind risky retry.
 - [ ] Optional: Jira read/create adapter, creation gated as tier 2.
@@ -338,7 +361,7 @@ are not implemented by that foundation alone.
 
 ### Offline verification
 
-- [ ] Reject invalid proposals and accept a valid revision.
+- [x] Reject invalid proposals and accept a valid revision in offline tests.
 - [ ] Domain CI action waits for valid owner confirmation and runs once concurrently.
 - [ ] Provider rejection/unknown outcomes require safe reconciliation (A-006).
 - [ ] Optional implemented integrations have scoped adapter/action tests.
@@ -361,15 +384,16 @@ Target: Oct 29. Prerequisite: timeline and validator-approved proposal.
 
 ### Implementation
 
-- [ ] Replay one corrected failed-pipeline sequence in isolated state.
-- [ ] Fake/recorded adapters and explicitly simulated results.
-- [ ] Prevent replay writes to observed events and live provider access.
+- [x] Operator-supplied corrected pipeline scenario replayed in isolated state.
+- [x] Pure in-memory replay with persisted explicitly simulated results.
+- [x] Replay isolation and simulated-only database constraint implemented.
 - [ ] Optional: exception draft export with tier-2 approval.
 
 ### Offline verification
 
-- [ ] Corrected sequence produces labelled simulation with no live effects.
-- [ ] Prove replay cannot write observed facts or call GitHub, Jira or Bolna.
+- [x] Corrected operator-supplied sequence produces labelled simulation in tests.
+- [ ] Connect replay to the validator-approved proposal in the end-to-end flow.
+- [x] Replay isolation tests reject observed writes/live provider access for current scope.
 - [ ] Optional draft export honors owner confirmation and scope.
 
 ### Live acceptance
@@ -851,3 +875,141 @@ Secret values are intentionally omitted. Prior implementation-only statements
 that no tunnel/hosted configuration had been changed describe agent actions at
 that earlier point; this later user configuration supersedes current setup status.
 Phase 3 and all unverified live acceptance items remain incomplete.
+
+
+### Oct 26: main-branch integration and migration collision
+
+Retained the phase-wise tracking layout and both branches' voice, incidents,
+negotiation and replay implementations. Main's prior evidence reports 411 tests
+for incidents and 436 for negotiation, plus one authorized outbound Bolna call
+on Oct 24; these are teammate-recorded historical claims, not reverified live
+here. The reported call used Bolna's model and does not establish the Svaar
+conversation bridge. The later dashboard 422 and voice handoff remain unresolved.
+
+Main adds repository/workflow/branch incident grouping, scoped timeline/actions,
+acknowledgement, same-org ops/lead/admin outbox alerts (A-018), request-scoped
+negotiation constraints (A-019), bounded validator-driven rounds and isolated
+operator-supplied simulated replay. No log-tail fingerprint, owner rule, GitHub
+App client, risky CI adapter or real voice bridge is established by this merge.
+Original phase exit checks and incomplete live acceptance remain unchanged.
+
+Migration collision: both branches called a different revision 0011. Main's
+0011 -> 0012 -> 0013 chain is preserved; voice receipts now use 0011_voice from
+0010. A merge revision 0014 joins 0013 and 0011_voice. A database whose existing
+0011 is the old voice-only schema needs a schema-verified version correction
+to 0011_voice before upgrade. Never blindly stamp or apply main's 0011 over it.
+
+
+Merge verification, 2026-10-26: 526 PostgreSQL tests passed with no skips and the
+existing A-004 warning. Ruff lint/format and the conflict-marker scan passed.
+Test-only migration 0014 -> 0010 -> main-only 0013 -> combined 0014 passed;
+both development and test databases have clean drift checks at 0014.
+Voice-only database labels were corrected after schema verification (A-020).
+No Git staging, commit, push or further pull was performed. The working files
+are resolved; the index remains unmerged until the user stages the four files.
+No live providers, calls, messages or public tunnel were used during resolution.
+
+
+### Oct 26: authoritative main-plan reconciliation
+
+User explicitly designated main's plan authoritative. Read-only comparison showed
+plans/PLAN.md is identical in HEAD, MERGE_HEAD and the working tree. The divergent
+documents were progress/checkpoint records, not a revised product plan. No
+requirements file was changed or replaced.
+
+Preserved main's incident aggregation, timeline/actions, private role-based
+alerts, deterministic negotiation/validator and isolated replay. Offline items
+now reflect the merged 526-test verification without claiming live acceptance.
+The checklist retains individual implementation/offline/live sections so an
+implemented subset is visible without weakening the original phase exit check.
+
+Outstanding plan gaps remain explicit: GitHub App/log-tail fingerprinting, an
+actual repository owner rule (A-018), standing constraints and agent wiring
+(A-019), planned manual incident creation, validator-linked replay, claim/evidence
+flow, Jev runtime acceptance and the real confirmed CI action. Voice wiring stays
+with the teammate. The current transport-only status handler closes failed call
+receipts instead of setting failed; full completed-transcript/evidence processing
+and balance alerts are missing (A-021). These are incomplete requirements, not
+implicit approvals to change the plan.
+
+This reconciliation edited only checkpoints/anomaly documentation. The prior
+526-test result remains the latest code verification; no further tests, migration,
+provider action or Git mutation were performed for these documentation changes.
+
+
+### Oct 26: standalone read-only GitHub App adapter
+
+Implemented integrations/github_app.py and optional paired App settings.
+for_repository resolves only a same-org repo mapping and that mapping's
+installation. JWT lifetime is nine minutes including a 60-second backdated iat;
+token caching stops five minutes before expiry. Token exchange scopes to one
+repository and Actions/metadata read permissions. Repository and workflow-run
+GETs verify returned identities. HTTP is bounded, redirects/proxy inheritance
+and retries are disabled, and failures reveal no keys/tokens/provider payloads.
+PyJWT[crypto] is the added dependency for RS256; uv.lock was updated.
+
+No startup/gateway/tool composition or new Compose credential forwarding exists.
+No real GitHub request, authentication, workflow mutation, call or message was
+made. Logs/archive retrieval, normalized log-tail fingerprinting, explicit owner
+mapping and end-to-end runtime integration remain pending. Webhook observations
+are not rewritten or synthesized from these reads.
+
+Verification: 545 tests passed without skips, including 19 adapter/settings tests;
+Ruff lint/format passed. The existing A-004 warning remains. No schema change or
+Git mutation was performed. The earlier paused merge still needs user staging
+and its manual commit; this task did not finish that Git operation.
+
+
+### Oct 26: bounded workflow logs and normalized signatures
+
+GithubAppClient.workflow_log_signature verifies a completed failed run before
+requesting its documented log archive redirect. Only HTTPS documented Actions
+storage hosts are permitted. A separate client sends no App JWT, installation
+token, API cookie or API headers to storage. There is one explicit hop, no
+automatic redirects/retries, and an 8 MiB streamed download limit.
+
+incidents/fingerprints.py reads only in memory, caps archive entries at 100 and
+expanded bytes at 16 MiB, and rejects unsafe paths, links, encrypted/non-text
+members, excessive compression and invalid/empty archives. It hashes the final
+40 nonempty normalized lines per file (bounded to 64 KiB), removes timestamps,
+ANSI formatting, paths and PIDs, and preserves ordinary numbers/error codes.
+Only log-tail-v1 digest/file-count metadata returns. A pure helper scopes the
+digest by organization, repository, workflow and branch.
+
+Existing incident grouping and observed events are unchanged. These signatures
+are not yet persisted or fetched by webhook/gateway jobs. Attempt-specific
+provenance and runtime orchestration must be designed before regrouping existing
+incidents. No failure category, claim verdict or production recovery is inferred.
+
+Verification: 570 tests passed without skips, including 25 new synthetic archive/
+download cases. Ruff lint/format and alembic check passed. No schema change, new
+dependency, real GitHub request, call, message or Git mutation occurred. A-004
+remains. The paused merge still requires manual staging and commit.
+
+
+### Oct 26: attempt-bound durable log-signature enrichment
+
+Added explicit integrations.log_enrichment.enrich_event and migration 0015 for
+workflow_log_signatures. Signed observed failed runs and their accepted delivery
+receipts must match org scope; incomplete/missing workflow scope is refused.
+The App adapter verifies the attempt-specific run response against run, attempt,
+commit, workflow and branch before requesting that attempt's log archive.
+No latest-attempt shortcut is used for persisted provenance.
+
+The network read is outside DB transactions. Mapping scope is rechecked under
+lock before storing only digest/fingerprint/version/file-count and source IDs.
+A unique attempt/algorithm key plus advisory lock serializes duplicates; changed
+hashes return conflict rather than overwrite. PostgreSQL forbids record updates
+and deletes. Failed/unavailable logs never fabricate provenance or modify events.
+
+This is an explicit internal operation with fake adapters in tests. No automatic
+job, public route, tool registration, live GitHub call or incident regrouping was
+added. Runtime work claiming/retries, missing-log policy and log-based grouping
+remain pending. Existing observed history and incident membership are unchanged.
+
+Verification: 586 PostgreSQL tests passed without skips; Ruff lint/format and
+whitespace checks passed. Migration 0015 round trip and drift checks passed
+on svaar_test; local svaar upgrade/check passed. Both databases are at 0015.
+No new dependency, live provider request, call, message or Git mutation was made.
+The existing A-004 warning remains; the user still needs to complete the paused
+Git merge manually.

@@ -388,6 +388,23 @@ or calls were started for this change. Live channel acceptance remains pending.
 - Outcome: No live authenticated provider requests, calls, messages or purchases.
   Bolna settings activate only explicit client construction; they are not forwarded
   through Compose until a process composes the provider.
+- Live evidence 2026-10-24 (user-authorized, recipient owned by the user and kept
+  out of logs, files and this document):
+  - GET /user/me: key accepted; trial account, max concurrency 2.
+  - Agent "Svaar" exists, status processed, still on Bolna's own model (Azure
+    gpt-4.1-mini) with no custom LLM endpoint, tools or status webhook.
+  - First attempts returned 400 "Trial accounts can only make calls to verified
+    phone numbers"; BolnaClient correctly raised CallRejectedError. After the
+    user verified the number in the Bolna dashboard, placement was accepted.
+  - Call 1 (execution e7bbd55c-...): initiated, ringing, busy; hangup by carrier;
+    cost 0. Call 2 (execution c220761a-...): ringing, in-progress,
+    call-disconnected, completed; hangup by callee; 41 s; cost 6.0 wallet units
+    (wallet 500.0 to 494.0); transcript present but not read or stored.
+  - latency_data.time_to_first_audio was 102.248 on a 41 s call, so its unit is
+    not seconds (likely milliseconds); still unconfirmed by Bolna documentation.
+  - Not verified: custom LLM turn mode, per-call reference delivery, status
+    webhook and Svaar answering on a call. Those need the turn/status routes,
+    a public tunnel and agent reconfiguration.
 - Owner: Unassigned.
 
 ## A-015: Phone verification core exists; private delivery and live transport remain
@@ -505,6 +522,57 @@ acceptance. Earlier notes that code delivery was absent are historical.
 - Evidence: 396 tests passed (37 new across this task); schema drift, test-only
   0010 -> 0008 -> 0010 round trip, Ruff and Compose passed. Development DB is 0010.
   No live provider calls or messages and no new dependency/infrastructure.
+- Update 2026-10-24: incidents and incident_events (migration 0011) group
+  observations without rewriting facts. A failure, timed_out or startup_failure
+  run opens one active incident per org and fingerprint (repository, workflow_id,
+  head_branch); later runs on that fingerprint join it. A success is linked as
+  evidence only and never resolves an incident. An advisory lock plus a partial
+  unique index serialize concurrent deliveries. Normalization now keeps optional
+  workflow_id, workflow name and head_branch. Tools get_timeline, list_incidents
+  and acknowledge_incident dispatch through actions; GET
+  /api/v1/incidents/{id}/timeline is operator-only. Remaining: log-tail
+  fingerprint (needs the App client), owner mapping and outbox alerts.
+  Evidence: 411 tests passed (15 new), drift check clean, dev DB at 0011.
+  Synthetic deliveries only; no live GitHub requests.
+
+## A-018: Incident alert recipients stand in for a missing repository owner
+
+- Status: Open; design decision needing team review, not an observed defect.
+- Evidence: src/svaar/incidents/alerts.py, src/svaar/integrations/github.py
+  (2026-10-24). PLAN.md says the owner is alerted, but no owner field exists on
+  repositories, mappings or incidents.
+- Current handling: opening an incident queues one private-chat alert to every
+  principal with role ops, lead or admin in the incident's organization. Each
+  alert is keyed incident-opened:<incident>:<principal>, so redelivery never
+  repeats it. Principals without exactly one verified private route are skipped.
+  Alerts are queued in the ingest transaction; if queueing fails, the observation
+  and incident roll back together. The body names only workflow and branch.
+- Impact: a team with many leads receives several alerts; nobody is singled out
+  as owner, so escalation calls (Phase 5) still need an owner rule.
+- Next action: decide an owner rule (per repository mapping, on-call rotation or
+  first acknowledger) before Phase 5 escalation.
+- Owner: Unassigned.
+
+## A-019: Negotiation constraints are supplied per request, not stored per agent
+
+- Status: Open; design decision needing team awareness, not an observed defect.
+- Evidence: src/svaar/resolution/ and migration 0012 (2026-10-24).
+- Plan difference: PLAN.md lists a constraints table (owner_agent, rule). The
+  implementation takes typed constraints with each negotiation and stores a JSON
+  snapshot on the negotiation row, so a stored verdict stays reproducible after
+  rules change. There is no standing per-organization rule store yet.
+- Behavior: the release agent only moves the start past freezes and never adds
+  approvals; capacity moves past busy slots and maintenance; staffing reassigns
+  to the first engineer, alphabetically, with no staffing violation. At most five
+  rounds; a proposal that cannot progress ends rejected. Only the validator can
+  accept. The demo conflict (freeze, off-shift engineer, deploy slot) is rejected
+  and its revision accepted in round two.
+- Remaining: a standing constraint store, a start_negotiation chat tool (it needs
+  trusted constraints rather than model-supplied ones), optional Jev ranking,
+  and the approve_exception tier-2 flow.
+- Evidence: 436 tests passed (22 new); drift clean; dev DB at 0012.
+- Owner: Unassigned.
+
 
 ### A-014 configuration update, 2026-10-24
 
@@ -592,3 +660,89 @@ trusts the local host and its cloudflared process; it is not a general proxy
 trust policy. The listener must bind 127.0.0.1 with Uvicorn proxy headers disabled.
 Only the exact status route is exposed. No tunnel launch or live delivery has
 occurred. Real edge-header behavior and provider acceptance remain open.
+
+
+## A-020: duplicate Alembic revision during branch merge
+
+- Observed 2026-10-26: main's incident schema and the voice branch both used
+  revision 0011 after 0010. This collision was not marked as a textual Git
+  conflict but would make migration history ambiguous.
+- Resolution: main's 0011 -> 0012 -> 0013 remains unchanged. Voice receipts now
+  identify as 0011_voice; revision 0014 joins 0013 and 0011_voice.
+- Local recovery: both svaar and svaar_test were verified at old voice-only
+  0011, with voice_webhook_events present, its expected columns and unique key,
+  and incident/negotiation/replay tables absent. Their migration label alone
+  was transactionally corrected to 0011_voice; no domain data was changed.
+- Verification: 526 tests passed without skips; lint/format passed. On the test
+  database, downgrade to 0010, main-only upgrade to 0013, upgrade through the
+  voice branch to 0014 and drift check passed. Development upgraded to 0014
+  with clean drift check. The earlier full suite also migrated voice-only
+  0011_voice through the incoming main branch successfully.
+- Other developers: a main database already at 0011/0012/0013 follows the normal
+  upgrade path. An old voice-only 0011 database needs the same schema-verified
+  label correction first. Do not blindly stamp, drop tables or run downgrade
+  on development databases to bypass the collision.
+- Four textual conflicts are resolved in the working files. The user must
+  stage the resolutions and commit the paused merge manually.
+
+
+## A-021: partial voice status lifecycle differs from the authoritative plan
+
+- Observed 2026-10-26 while reconciling the merge to main's PLAN.md section 10.
+- Current apply_provider_status closes every terminal outcome, including
+  no-answer/busy/failed/canceled/stopped/error. The plan requires failed state
+  for these outcomes. Tests currently assert transport closure, not the full
+  planned failure state semantics.
+- Completed callbacks do not yet classify/retain transcripts or persist evidence;
+  balance-low does not yet enqueue an operator alert. Failed-call private
+  follow-ups are implemented, but do not complete those missing requirements.
+- Treat these as incomplete plan work; passing tests are scoped to the implemented
+  transport layer. Do not count them as full status lifecycle/live acceptance.
+- Remaining voice wiring belongs to the user's teammate. Align state transitions
+  and tests with the plan alongside existing pending domain work; do not weaken
+  claims, authentication, dedupe or retention requirements.
+- No code or plan change was made during this documentation reconciliation.
+
+### Main-plan precedence clarification, 2026-10-26
+
+The user designated the incoming main plan authoritative. Read-only comparison
+confirmed plans/PLAN.md is identical in both merge parents and the working tree.
+Main's revised progress records are retained in the combined checklist with
+scoped evidence; they do not override product requirements. A-018 owner selection
+and A-019 request-scoped constraints remain open plan differences, not approved
+plan amendments. Earlier session instructions retaining plans/ and prohibiting
+agent Git mutations continue to govern the team's manual workflow.
+
+
+### A-017 App adapter update, 2026-10-26
+
+The standalone GitHub App adapter now supports RS256 installation authentication
+and verified repository/workflow-run reads scoped through an explicit same-org
+repo mapping. Synthetic signing/HTTP/cache/concurrency/isolation tests pass.
+Full suite: 545 passed. This is mocked contract verification, not live App access.
+No logs/archive download, runtime composition, log-tail fingerprint, explicit
+repository owner or confirmed risky CI action is established. The client only
+requests Actions/metadata read permissions. No live provider calls were made.
+
+
+### A-017 log retrieval/signature update, 2026-10-26
+
+Standalone failed-workflow archive download and normalized log-tail-v1 signatures
+are implemented and mocked/tested. API credentials never reach storage downloads;
+host/redirect and archive expansion bounds apply. Only hashes return; raw logs
+are neither persisted nor logged. Full PostgreSQL suite 570 passed.
+Runtime retrieval, attempt-bound persisted provenance and log-based grouping are
+still absent; the existing repository/workflow/branch grouping remains in use.
+Unavailable or invalid logs raise a sanitized error, never a shared empty hash.
+No live GitHub log contract/account acceptance or production recovery is claimed.
+
+
+### A-017 attempt provenance update, 2026-10-26
+
+Explicit enrichment now checks signed observation/delivery scope, verifies
+attempt-specific GitHub metadata and stores immutable hash provenance in
+workflow_log_signatures (0015). Reads occur outside DB transactions; mappings are
+rechecked before writes. Duplicate/conflicting signatures do not overwrite the
+first record. Existing events/incident links are not changed. Guarded runtime
+orchestration and log-driven grouping remain incomplete; no live provider
+acceptance or production recovery is established.

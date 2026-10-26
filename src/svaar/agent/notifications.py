@@ -43,14 +43,16 @@ def enqueue_voice_fallback(
     call_id: uuid.UUID,
     turn_index: int,
 ) -> bool:
-    """Queue once to a single verified private conversation; ambiguous routes refuse.
+    """Queue the generic call follow-up once per call turn.
 
     The principal and organization come from the resolved call, never model text.
-    Locking the processed inbound anchor reserves the next outbox ordinal without
-    fabricating inbound messages or changing the delivery adapter.
     """
-    return _enqueue_private_followup(
-        session, org_id, principal_id, f"voice-fallback:{call_id}:{turn_index}", FOLLOW_UP
+    return enqueue_private_notification(
+        session,
+        org_id=org_id,
+        principal_id=principal_id,
+        key=f"voice-fallback:{call_id}:{turn_index}",
+        body=FOLLOW_UP,
     )
 
 
@@ -67,19 +69,29 @@ def enqueue_call_failure(
     call_id: uuid.UUID,
 ) -> bool:
     """Queue one private notification per failed call, without a direct send."""
-    return _enqueue_private_followup(
-        session, org_id, principal_id, f"voice-call-failure:{call_id}", CALL_FAILURE_FOLLOW_UP
+    return enqueue_private_notification(
+        session,
+        org_id=org_id,
+        principal_id=principal_id,
+        key=f"voice-call-failure:{call_id}",
+        body=CALL_FAILURE_FOLLOW_UP,
     )
 
 
-def _enqueue_private_followup(
+def enqueue_private_notification(
     session: Session,
+    *,
     org_id: uuid.UUID,
     principal_id: uuid.UUID,
     key: str,
     body: str,
 ) -> bool:
-    """Reuse verified routing and locked outbox ordinal reservation."""
+    """Queue once to a single verified private conversation; ambiguous routes refuse.
+
+    Locking the processed inbound anchor reserves the next outbox ordinal without
+    fabricating inbound messages or changing the delivery adapter. The key makes
+    the notification idempotent; the body must contain no secrets or transcripts.
+    """
     existing = _existing_notification(session, key, org_id, principal_id)
     if existing is not None:
         return existing

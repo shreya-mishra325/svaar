@@ -785,3 +785,89 @@ test acceptance because its source is not a Bolna IP. Unknown executions, includ
 dashboard samples without a stored Svaar call receipt, deliberately return 404.
 Public delivery and real source-header behavior remain unverified until tested.
 The conversation-turn bridge remains separate and incomplete.
+
+
+### Standalone read-only GitHub App adapter
+
+Phase 4 now has GithubAppClient.for_repository(session, settings, org_id,
+repository_id). It requires an explicit same-org repo_mappings entry and uses
+that entry's installation ID, with no deployment-wide installation fallback.
+
+Optional SVAAR_GITHUB_APP_ID and SVAAR_GITHUB_PRIVATE_KEY_B64 must be configured
+together. The key is base64-encoded unencrypted PEM RSA, at least 2048 bits.
+It is separate from the existing GitHub webhook HMAC secret. Leave both blank
+until the team provisions an App; no credentials are needed for mocked tests.
+
+PyJWT with cryptography support signs a nine-minute RS256 JWT, including the
+documented clock-skew allowance. Token exchange requests only the selected
+repository and Actions/metadata read permissions. The client caches the token
+until five minutes before expiry, serializes concurrent refreshes and bounds HTTP
+timeouts and response size. It follows no redirects, inherits no HTTP proxies,
+performs no automatic retries and exposes sanitized errors.
+
+repository_name and workflow_run perform reads and verify response IDs. They do
+not create observed events, infer recovery or execute business tools. No workflow
+rerun, dispatch or cancel is exposed. Client construction makes no requests.
+Callers must close the client. The adapter remains standalone: it is not wired
+into startup, the gateway or model tools; App secrets are not newly forwarded
+through Compose. Runtime lifecycle/deadline composition remains future work.
+
+Verified scope: official contracts and mocked HTTP with synthetic RSA keys.
+No live authentication or installation provisioning was attempted. Workflow
+logs/archive retrieval and normalized log-tail fingerprinting remain pending.
+
+References:
+https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app
+https://docs.github.com/en/rest/apps/apps#create-an-installation-access-token-for-an-app
+https://docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run
+
+
+### Workflow-log signatures (standalone)
+
+GithubAppClient.workflow_log_signature(run_id) now verifies a completed failed
+run, requests GitHub's short-lived log redirect, and downloads the ZIP using a
+separate credential-free client. Accepted storage locations are HTTPS on
+results-receiver.actions.githubusercontent.com or an Azure blob storage account
+host matching the documented blob.core.windows.net family. Arbitrary hosts,
+userinfo, nonstandard ports and further redirects are rejected. API credentials,
+headers and cookies are not forwarded.
+
+The 8 MiB archive is processed in memory with 100-member/16 MiB expanded limits.
+Unsafe paths, links, encrypted or non-text files, excessive compression and empty
+or invalid logs are rejected. No archive is extracted to disk. The signature
+hashes versioned normalized file tails, not raw log text or filenames.
+Ordinary numeric error codes remain meaningful; timestamps, paths, PIDs and ANSI
+formatting are normalized. Only digest and file-count metadata return.
+
+The scoped failure_fingerprint helper includes org, repository, workflow and
+branch. It does not change current incident grouping, create observed evidence
+or infer recovery. Runtime composition, run-attempt provenance, durable signature
+storage and grouping integration are pending. Missing logs produce an explicit
+failure rather than a fabricated empty fingerprint. No live download was tested.
+
+Contracts:
+https://docs.github.com/en/rest/actions/workflow-runs#download-workflow-run-logs
+https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+
+
+### Attempt-bound log provenance
+
+The explicit internal integrations.log_enrichment.enrich_event operation reads
+one same-org signed failed-workflow observation, verifies an App response against
+its run ID, attempt, commit SHA, workflow ID and branch, and downloads that
+attempt's logs. Provider I/O occurs after the read transaction has closed.
+There is no automatic startup, webhook, gateway, job or model-tool invocation.
+
+Migration 0015 adds workflow_log_signatures: only digests, scoped fingerprint,
+algorithm, file count, observation reference and run/installation metadata are
+stored. A unique per-org/repository/run/attempt/algorithm key and advisory lock
+serialize writes. Matching reprocessing returns duplicate. A changed digest
+returns conflict and preserves the original; raw logs and signed URLs are not
+stored. PostgreSQL blocks updates and deletes of signature records.
+
+The repository mapping is rechecked before commit; changed or missing mappings
+cannot receive a record. Unavailable or invalid logs create no signature.
+Unsupported/successful/incomplete observations are refused before provider I/O.
+This is enrichment metadata, not a claim verdict or production recovery signal.
+Existing incident membership and broad workflow grouping remain unchanged until
+runtime enrichment and log-based grouping are wired together.
