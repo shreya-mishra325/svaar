@@ -56,6 +56,28 @@ def enqueue_voice_fallback(
     )
 
 
+CALL_FAILURE_FOLLOW_UP = (
+    "Your call did not complete. Please continue in this private chat. "
+    "This call outcome does not verify or contradict any claim."
+)
+
+
+def enqueue_call_failure(
+    session: Session,
+    org_id: uuid.UUID,
+    principal_id: uuid.UUID,
+    call_id: uuid.UUID,
+) -> bool:
+    """Queue one private notification per failed call, without a direct send."""
+    return enqueue_private_notification(
+        session,
+        org_id=org_id,
+        principal_id=principal_id,
+        key=f"voice-call-failure:{call_id}",
+        body=CALL_FAILURE_FOLLOW_UP,
+    )
+
+
 def enqueue_private_notification(
     session: Session,
     *,

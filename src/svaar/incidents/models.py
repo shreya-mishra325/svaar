@@ -108,3 +108,43 @@ class IncidentEvent(Base):
         ForeignKey("events.id"), primary_key=True, unique=True
     )
     linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WorkflowLogSignature(Base):
+    """Append-only normalized digest, bound to one signed failed-run observation."""
+
+    __tablename__ = "workflow_log_signatures"
+    __table_args__ = (
+        UniqueConstraint(
+            "org_id",
+            "repository_id",
+            "run_id",
+            "run_attempt",
+            "algorithm",
+            name="uq_workflow_log_signatures_attempt",
+        ),
+        CheckConstraint(
+            "repository_id > 0 AND run_id > 0 AND run_attempt > 0 AND "
+            "workflow_id > 0 AND installation_id > 0",
+            name="ids_positive",
+        ),
+        CheckConstraint("file_count > 0 AND file_count <= 100", name="files_valid"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"))
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id"), index=True)
+    repository_id: Mapped[int] = mapped_column(BigInteger)
+    installation_id: Mapped[int] = mapped_column(BigInteger)
+    run_id: Mapped[int] = mapped_column(BigInteger)
+    run_attempt: Mapped[int] = mapped_column(Integer)
+    workflow_id: Mapped[int] = mapped_column(BigInteger)
+    head_sha: Mapped[str] = mapped_column(String(64))
+    head_branch: Mapped[str] = mapped_column(String(255))
+    algorithm: Mapped[str] = mapped_column(String(32))
+    digest: Mapped[str] = mapped_column(String(64))
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    file_count: Mapped[int] = mapped_column(Integer)
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

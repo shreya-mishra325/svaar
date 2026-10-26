@@ -121,20 +121,8 @@ class CallService:
                 or result.agent_id != call.provider_agent_id
             ):
                 return "provider_mismatch"
-            status = result.status
-            if status in TERMINAL_STATUSES:
-                call.state = "closed"
-            elif status in PROGRESS_STATUSES:
-                old = call.provider_status
-                if old in PROGRESS_STATUSES and PROGRESS_STATUSES.index(
-                    status
-                ) < PROGRESS_STATUSES.index(old):
-                    return call.state
-                # Disconnected blocks new turns but is not a completed result.
-                call.state = "active" if status == "in-progress" else "queued"
-            else:
-                return "provider_mismatch"
-            call.provider_status = status
+            if not apply_provider_status(call, result.status):
+                return call.state
             session.commit()
             return call.state
 
@@ -177,3 +165,27 @@ def prepare_phone_verification_call(
         principal_id=principal_id,
         challenge_id=challenge_id,
     )
+
+
+def apply_provider_status(call: VoiceCall, status: str) -> bool:
+    """Monotonic transport lifecycle only; never establish evidence or identity."""
+    if call.provider_status in TERMINAL_STATUSES:
+        return False
+    if status not in TERMINAL_STATUSES and status not in PROGRESS_STATUSES:
+        return False
+    if call.state in {"closed", "failed"}:
+        if status in TERMINAL_STATUSES:
+            call.provider_status = status
+            return True
+        return False
+    if status in TERMINAL_STATUSES:
+        call.state = "closed"
+    else:
+        old = call.provider_status
+        if old in PROGRESS_STATUSES and PROGRESS_STATUSES.index(status) < PROGRESS_STATUSES.index(
+            old
+        ):
+            return False
+        call.state = "active" if status == "in-progress" else "queued"
+    call.provider_status = status
+    return True

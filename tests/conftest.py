@@ -49,6 +49,7 @@ def client(app: FastAPI) -> Iterator[TestClient]:
 
 
 DOMAIN_TABLES = (
+    "workflow_log_signatures",
     "replay_runs",
     "negotiation_rounds",
     "negotiations",
@@ -57,6 +58,7 @@ DOMAIN_TABLES = (
     "webhook_deliveries",
     "events",
     "repo_mappings",
+    "voice_webhook_events",
     "voice_turns",
     "voice_calls",
     "phone_challenges",
