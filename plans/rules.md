@@ -57,7 +57,7 @@ workflow; they do not authorize an agent to perform Git operations.
 - Svaar is an independent engineering-incident agent. Cerebro is a reference for
   patterns and flaws, not a runtime dependency. Do not copy its codebase, import
   unavailable modules, share its database or invent Cerebro interfaces.
-- Preserve: **Jev decides, deterministic code enforces, Bolna speaks.**
+- Preserve: **Models propose, deterministic code enforces, Bolna speaks.**
 - Chat and voice share one agent, registry and action gate. All business tools
   must pass through `actions`; no transport or model may call handlers directly.
 - Validate arguments with Pydantic and enforce organization, role, channel,

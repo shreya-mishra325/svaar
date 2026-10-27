@@ -2,7 +2,9 @@
 
 Target: Bolna Buildathon submission, due Oct 31, 2026. Shortlist interviews run Nov 5 to 7 and the top three pitch in Bengaluru on Nov 20.
 
-Core rule: **Jev decides, deterministic code enforces, Bolna speaks.**
+Core rule: **Models propose, deterministic code enforces, Bolna speaks.**
+
+Plan change (2026-10-27): Jev is removed from scope. Typed decisions now come from deterministic heuristics or an optional structured classifier on the existing chat LLM (section 9). No separate decision-model provider, key or gateway is used.
 
 Local working document. Do not commit it and do not place it in `plans/`. Add it to `.git/info/exclude`:
 
@@ -39,7 +41,7 @@ Domain: engineering team operations. Nothing outside that domain is in scope.
 | One brain | A single agent loop serves every channel. Transports differ, the loop, tools and policies do not |
 | One gate | Every tool call, from chat or from a call, goes through the `actions` dispatcher. No handler is ever called directly |
 | Voice is a transport | Bolna supplies telephony, speech in/out and the final transcript. Its function-mode wrapper may call only `ask_svaar`; Svaar owns business decisions and tool execution |
-| Jev decides, code enforces | Jev returns typed decisions with confidence. Deterministic code validates, authorizes and acts. Jev never executes anything |
+| Models propose, code enforces | The chat LLM proposes replies and tool calls; typed decisions come from a validated classifier or deterministic heuristics. Deterministic code validates, authorizes and acts. No model executes anything |
 | Observations and simulations never mix | Replay output stays in `replay` tables and never enters `events` |
 | Missing evidence is not contradiction | Absent evidence, `no-answer`, `busy` and failed calls never mark a claim `contradicted` |
 
@@ -113,18 +115,18 @@ flowchart TD
     Actions --> Resolution["resolution"]
     Actions --> Replay["replay"]
     Incidents --> Decisions["decisions"]
-    Decisions --> Jev["Jev"]
+    Decisions -. "optional classifier" .-> LLM
     Sources["GitHub, Jira"] --> Integrations["integrations"]
     Integrations --> Incidents
     Jobs["jobs"] --> Incidents
 
     classDef external stroke-dasharray: 4 3
-    class Chat,Caspian,LLM,Caller,Bolna,Jev,Sources external
+    class Chat,Caspian,LLM,Caller,Bolna,Sources external
 ```
 
 Dashed boxes are outside Svaar. Solid boxes are Svaar packages. The dotted arrow from `voice` to `agent` is a runtime call through an injected protocol, not an import (see Composition).
 
-Every business action, from chat or from a call, passes through one path in `actions`. Jev confidence and the LLM's proposed tool call never override authorization, mission allowlists or configured risk tiers:
+Every business action, from chat or from a call, passes through one path in `actions`. Model confidence and the LLM's proposed tool call never override authorization, mission allowlists or configured risk tiers:
 
 ```mermaid
 flowchart LR
@@ -164,18 +166,17 @@ Decision path inside the `decisions` package:
 
 ```mermaid
 flowchart LR
-    Input["Call transcript or incident event"] --> Adapter["Jev adapter"]
-    Adapter --> Jev["Jev"]
-    Jev --> Policy["Policy layer"]
-    Adapter -. "unavailable or invalid" .-> Fallback["Heuristic fallback"]
+    Input["Call transcript or incident event"] --> Engine["Decision engine"]
+    Engine --> Classifier["Chat LLM classifier, optional"]
+    Engine --> Fallback["Deterministic heuristics"]
+    Classifier -. "unavailable or invalid" .-> Fallback
+    Classifier --> Policy["Policy layer"]
     Fallback --> Policy
     Policy --> Auto["Act automatically"]
     Policy --> Ask["Ask by voice"]
     Policy --> Defer["Defer to a person"]
     Policy --> Audit["decisions table record"]
 
-    classDef external stroke-dasharray: 4 3
-    class Jev external
 ```
 
 ### Processes
@@ -218,7 +219,7 @@ Application startup constructs `agent`'s implementation and injects it into `voi
 | `identity` | new | Organizations, principals, roles, channel bindings (including verified phones), invites, enrollment |
 | `actions` | new | Tool registry, argument validation, authorization, risk tiers, dispatcher, `tool_executions` |
 | `incidents` | existing | `events`, `claims`, `evidence`, timelines, incident state machine, failure fingerprints |
-| `decisions` | existing | Jev adapter, heuristic fallback, policy layer, `decisions` table |
+| `decisions` | existing | Decision engine interface, optional chat-LLM classifier, heuristic engine, policy layer, `decisions` table |
 | `voice` | existing | Bolna client, `voice_calls`, `voice_turns`, `voice_webhook_events`, turn routes, call missions, voice auth |
 | `resolution` | existing | `constraints`, `negotiation_rounds`, negotiation agents, validator, exception draft |
 | `replay` | existing | Sandbox runs and simulated results (never written to `events`) |
@@ -319,19 +320,39 @@ Tier-2 tools requested during a call do not run. The dispatcher creates a confir
 
 ### Verify
 
-Claims come from chat: Jev's `noul` question decides whether a message states verifiable work status. Evidence lookup against events is deterministic. A claim like "fix merged" needs a merge event by query. With no supporting event the claim is `unverified`, and Svaar may place a `claim_check` call. The agent runs the call as a bounded mission with one tool, `record_claim_answer`. After the call completes, Jev classifies the answer from the final transcript and deterministic code writes evidence. Missing evidence, `no-answer`, `busy` and failed calls never produce `contradicted`.
+Claims come from chat: the claim-detection decision slot decides whether a message states verifiable work status. Evidence lookup against events is deterministic. A claim like "fix merged" needs a merge event by query. With no supporting event the claim is `unverified`, and Svaar may place a `claim_check` call. The agent runs the call as a bounded mission with one tool, `record_claim_answer`. After the call completes, the claim-answer slot labels the answer from the final transcript and deterministic code writes evidence. Missing evidence, `no-answer`, `busy` and failed calls never produce `contradicted`.
 
 ### Negotiate
 
-Three agents with hard constraints in `constraints`: release schedule (freeze windows, required approvals), on-call staffing (minimum coverage, maximum consecutive hours), and deploy and CI capacity (concurrent deploys, environment availability). The demo conflict is a hotfix that violates a freeze, needs an off-shift engineer, and competes for a deploy slot. Agents propose, Jev may rank, and the deterministic validator accepts or rejects each proposal with listed violations.
+Three agents with hard constraints in `constraints`: release schedule (freeze windows, required approvals), on-call staffing (minimum coverage, maximum consecutive hours), and deploy and CI capacity (concurrent deploys, environment availability). The demo conflict is a hotfix that violates a freeze, needs an off-shift engineer, and competes for a deploy slot. Agents propose and the deterministic validator accepts or rejects each proposal with listed violations.
 
 ### Replay and exception draft
 
 `replay` runs the corrected sequence against isolated state with recorded or fake adapters. It never writes to `events` and never calls GitHub, Jira or Bolna. Results are typed `simulated`. `resolution` exports a tracked-change exception draft; it is not legal or compliance advice, and `approve_exception` needs tier-2 confirmation.
 
-## 9. Jev decisions
+## 9. Decisions
 
-Jev is a decision model, not a chat model. It takes a state and named, typed questions and returns one typed answer per question, with probabilities and a confidence value. All words Svaar says, in chat or on a call, come from Svaar's chat LLM. Bolna only voices them.
+Svaar has no separate decision model; Jev was removed from the plan on 2026-10-27. All words Svaar says, in chat or on a call, come from the chat LLM, and Bolna only voices them. Typed decisions (labels with a confidence) are answered behind one `DecisionEngine` interface by one of two engines:
+
+| Engine | Availability | Behavior |
+|---|---|---|
+| Deterministic heuristics | Always; the default and the fallback | Keyword and length rules in `decisions/fallback.py`. Answers carry confidence 0.0 and source `fallback`, so the policy layer always defers them |
+| Structured classifier on the chat LLM | Optional; only when `SVAAR_LLM_*` is configured | Reuses the existing OpenAI-compatible adapter and model. Each request states the slot's allowed labels and criteria and requires a JSON object `{"label": ..., "confidence": ...}`. Anything else is invalid |
+
+### Marked for deletion
+
+Jev code still exists and is not yet removed. Delete or update these in a follow-up change:
+
+| Item | Action |
+|---|---|
+| `src/svaar/decisions/jev.py` (`VercelJevEngine`) | Delete |
+| `tests/test_jev.py` | Delete |
+| `DecisionSource.JEV` (`"jev"`) in `src/svaar/decisions/types.py` | Rename to `MODEL` (`"model"`); keep old audit rows as history |
+| Jev wording in `decisions/__init__.py`, `decisions/types.py`, `decisions/fallback.py`, `actions/missions.py`, `svaar/__init__.py` | Update docstrings |
+| Core rule sentence in `src/svaar/agent/prompts.py` | Change to the new core rule |
+| `model_version="jev-test"` and the `jev()` helper in `tests/test_decisions.py`, `tests/test_agent_loop.py` | Rename |
+| `# SVAAR_JEV_*` lines in `.env.example` | Delete |
+| Website footer in `frontend/app/page.tsx` | Change to the new core rule |
 
 ### Decision slots
 
@@ -342,17 +363,18 @@ Keep the runtime decision catalogue small. Each slot has a fixed schema, allowed
 | P0 | Voice intent router | `choice` | `investigate`, `verify_claim`, `explain_failure`, `propose_resolution`, `confirm_action`, `other` | Routes a usable utterance to an existing mission or registered tool path. Unknown or low-confidence intent triggers a short clarification, not a risky action. |
 | P0 | Transcript usability gate | `choice` | `usable`, `repeat`, `clarify`, `unusable` | Determines whether the transcript is intelligible enough to interpret. Unusable or ambiguous speech cannot create evidence, confirm an action, or change claim status; usability does not establish truth. |
 | P0 | Claim-answer classifier | `choice` | `confirmed`, `denied`, `unsure`, `wrong_person`, `callback` | Classifies the completed `claim_check` call transcript only. Deterministic code maps the classification to a provenance-bearing evidence record when appropriate; `unsure`, `wrong_person`, `callback`, unusable transcripts and failed calls do not contradict a claim. |
-| P0 | Mission guard | Deterministic code, not Jev | Tools permitted by the active mission | Rejects tools outside the active mission, regardless of what the LLM or Jev proposes. Enforces mission state, principal, incident scope and authorization in code. |
+| P0 | Mission guard | Deterministic code, not a model | Tools permitted by the active mission | Rejects tools outside the active mission, regardless of what any model proposes. Enforces mission state, principal, incident scope and authorization in code. |
+| P1 | Claim detection | `choice` | `claim`, `no_claim` | Decides whether a chat message states verifiable work status. A detected claim starts deterministic evidence lookup; it never sets claim status. |
 | P1 | CI failure category and flaky-vs-real classification | `choice` | `flaky`, `test`, `dependency`, `infra`, `config`, `unknown` | One classification drives alert severity and the contextual hints shown by `explain_ci_failure`. A `flaky` result may produce a quiet note instead of a high-urgency alert. Failure fingerprinting and deduplication remain deterministic. |
 | P1 | Adaptive escalation | `choice` | `wait`, `chat_nudge`, `call_now` | Recommends the next escalation step using incident state, acknowledgement age and failure category. Deterministic code enforces escalation timing, recipient authorization and call limits. |
-| P1 | Calibration and outcome evaluation | Evaluation module, not a runtime decision slot | Labelled examples and observed outcomes | Measures accuracy, confidence buckets, fallback rate, latency and downstream outcomes. Thresholds are tuned on a labelled evaluation set rather than assumed from vendor claims. |
+| P1 | Calibration and outcome evaluation | Evaluation module, not a runtime decision slot | Labelled examples and observed outcomes | Measures accuracy, confidence buckets, fallback rate, latency and downstream outcomes. Thresholds are tuned on a labelled evaluation set. |
 | P2 / stretch | Recovery assessment | `choice` | `resolved`, `still_failing`, `uncertain` | Runs only after a confirmed real rerun and evaluates new, real GitHub workflow events. Sandbox replay never proves production recovery. Implement only if all P0/P1 paths are stable. |
 
-The existing claim-verification workflow remains. The claim-answer classifier labels what the caller said; it does not set claim status. Deterministic code maps a usable answer to a persisted evidence record with provenance and an explicit `supports` or `contradicts` stance only when justified. A claim status is derived from persisted evidence and deterministic rules, not from a separate claim-status decision slot.
+The claim-answer classifier labels what the caller said; it does not set claim status. Deterministic code maps a usable answer to a persisted evidence record with provenance and an explicit `supports` or `contradicts` stance only when justified. A claim status is derived from persisted evidence and deterministic rules, not from a separate claim-status decision slot.
 
 Do not add a separate investigation-next-step slot, incident-urgency score, action-risk score, or negotiation score to the critical path. Existing workflows and deterministic controls already cover these concerns, and extra calls add latency without improving the core demo.
 
-Never let Jev directly set `contradicted`. That status requires an explicit, persisted evidence record with a `contradicts` stance and provenance. Missing evidence, an unanswered or failed call, a busy line, an unusable transcript, or an uncertain answer leaves the claim `unverified`.
+Never let a model directly set `contradicted`. That status requires an explicit, persisted evidence record with a `contradicts` stance and provenance. Missing evidence, an unanswered or failed call, a busy line, an unusable transcript, or an uncertain answer leaves the claim `unverified`.
 
 Recovery assessment is optional and must never be a dependency for the submission demo.
 
@@ -362,23 +384,19 @@ Recovery assessment is optional and must never be a dependency for the submissio
 |---|---|
 | Act automatically | Confidence at or above the high threshold and the action is reversible |
 | Ask by voice | Confidence between thresholds, or the action is risky |
-| Defer or use fallback | Confidence below the low threshold, Jev unavailable, or response invalid |
+| Defer or use fallback | Confidence below the low threshold, classifier unconfigured or unavailable, response invalid, or the answer came from the heuristic engine |
 
-Thresholds are configuration, tuned on your own labelled call transcripts. The vendor's calibration claim is not assumed. Send Jev only what a question needs, with phone numbers and names redacted. Confidence may choose between a safe fallback, clarification or deferral; it never grants authorization, changes a tool's configured risk tier, or bypasses the dispatcher or confirmation gate.
+Thresholds are configuration, tuned on your own labelled call transcripts. A chat model's self-reported confidence is not a calibrated probability; treat it as a score to tune against, never as evidence. Send the classifier only what a question needs, with phone numbers and names redacted. Confidence may choose between a safe fallback, clarification or deferral; it never grants authorization, changes a tool's configured risk tier, or bypasses the dispatcher or confirmation gate.
 
-### Gateways
+### Engine contract
 
-Before implementing the adapter, verify the chosen gateway's actual request and response contract using its current documentation and a real or official example. Confirm the accepted question schema, `choice` criteria format, response structure, confidence and probability fields, timeout behavior, and whether multiple named questions can be sent in one request. Do not assume different gateways share an identical payload.
-
-Expose one internal `DecisionEngine` interface so callers remain independent of the provider. Parse and validate each returned answer independently and write a separate audit record for every question. If a batched response contains both valid and invalid answers, preserve valid answers and use the deterministic fallback only for the missing or invalid questions; a transport-level failure may fall back for all questions.
-
-The CI classification and adaptive escalation decisions may be batched only if the selected gateway explicitly supports multiple named questions in one request. Both decisions must be validated and handled independently: an invalid answer must not invalidate a valid answer from the same request.
+Expose one internal `DecisionEngine` interface so callers never depend on which engine answered. Validate each returned answer independently and write a separate audit record for every question, with its source (`model` or `fallback`), model version and fallback reason. If one answer is invalid, keep the valid ones and use the deterministic fallback only for the missing or invalid questions; a transport-level failure falls back for all questions.
 
 For malformed responses, timeouts, provider errors and unusable confidence data, use deterministic fallback behavior. Never fabricate a missing answer or confidence value.
 
-Candidate routes: TypeSafe native System One API; NanoGPT `POST https://nano-gpt.com/api/v1/decisions`; Inworld `POST https://api.inworld.ai/alpha/decisions` (alpha); LiteLLM, Portkey or Bifrost `/v1/decisions` routes. Common to all: a `state`, named typed questions (`noul`, `choice`, `score`), and `criteria` on choice questions. Pin the model version (for example `jev-1.13.0`).
+Voice turns run the heuristic gates first and spend at most one classifier request per turn, inside the voice profile's deadline. Alert-time decisions (CI category, escalation) may be asked together in one request only if each answer is still validated and audited independently.
 
-### Adapter interface (synchronous)
+### Engine interface (synchronous)
 
 ```python
 from dataclasses import dataclass
@@ -387,14 +405,14 @@ from typing import Mapping, Protocol, Sequence
 
 @dataclass(frozen=True)
 class Decision:
-    """A typed decision returned by Jev or the heuristic fallback.
+    """A typed decision returned by the classifier or the heuristic engine.
 
     Attributes:
         name: The question name the answer belongs to.
-        value: The chosen label, boolean, or score.
+        value: The chosen label.
         confidence: Confidence in the range 0.0 to 1.0.
         probabilities: Per-label probabilities when available.
-        model_version: The pinned model version that produced the answer.
+        model_version: The chat model that produced the answer, or "heuristic".
     """
 
     name: str
@@ -405,7 +423,7 @@ class Decision:
 
 
 class DecisionEngine(Protocol):
-    """Interface implemented by the Jev adapter and the heuristic fallback."""
+    """Interface implemented by the chat-LLM classifier and the heuristic engine."""
 
     def decide(
         self, state: str, questions: Mapping[str, dict]
@@ -426,7 +444,7 @@ class DecisionEngine(Protocol):
         ...
 ```
 
-Use `httpx.Client` with explicit connect and read timeouts. A timeout or invalid payload raises `DecisionUnavailableError`, and the policy layer routes to the heuristic fallback.
+The classifier uses the chat adapter's bounded `httpx.Client`. A timeout or invalid payload raises `DecisionUnavailableError`, and the decision service routes to the heuristic engine.
 
 ## 10. Bolna integration
 
@@ -514,7 +532,7 @@ The voice path must remain short and predictable. Apply the following sequence i
 3. If the transcript is unusable or ambiguous, ask the caller to repeat or clarify. Do not run tools or mutate evidence.
 4. Use the voice intent router to select an existing mission or registered tool path. If intent is unknown or confidence is insufficient, ask a short clarification.
 5. Generate the tool policy from the registry and active mission. The deterministic mission guard rejects any tool not permitted for that call.
-6. Validate arguments, authorize the principal, and dispatch all tool calls through `actions`. Jev and the LLM cannot bypass the dispatcher or approval gate.
+6. Validate arguments, authorize the principal, and dispatch all tool calls through `actions`. No model can bypass the dispatcher or approval gate.
 7. Persist the turn and its audit records idempotently. A retry must return the saved reply rather than repeat tool calls.
 
 The intent router, transcript usability gate and mission guard are P0 voice reliability requirements. Implement and test them before expanding the decision catalogue. The intent router selects an intent within the active call; it cannot change the call's mission or expand its tool allowlist. Starting a different mission requires a separate deterministic server-side transition.
@@ -525,13 +543,13 @@ Measure per-turn latency and Bolna's `time_to_first_audio` where available. Keep
 
 ### Transcripts
 
-Per-turn caller text and replies are stored in `messages` under the call's conversation so the agent has history. The final transcript from the `completed` webhook feeds Jev classification and the audit trail. Transcripts have a retention limit and are never logged.
+Per-turn caller text and replies are stored in `messages` under the call's conversation so the agent has history. The final transcript from the `completed` webhook feeds claim-answer classification and the audit trail. Transcripts have a retention limit and are never logged.
 
 ### Status handling
 
 | Bolna status | Svaar action |
 |---|---|
-| `completed` | Parse transcript and extractions, run Jev classification, write evidence, update claim, close the call row |
+| `completed` | Parse transcript and extractions, run claim-answer classification, write evidence, update claim, close the call row |
 | `no-answer`, `busy`, `failed`, `canceled`, `stopped`, `error` | Mark the call failed; the claim stays `unverified`; tell the requester in chat through the outbox |
 | `balance-low` | Alert the operator in chat; no claim change |
 | Anything else | Record and ignore |
@@ -622,7 +640,7 @@ Validate at application construction; secrets have no defaults and are never log
 | Operator | `SVAAR_OPERATOR_TOKEN` |
 | Chat LLM | `SVAAR_LLM_BASE_URL`, `SVAAR_LLM_API_KEY`, `SVAAR_LLM_MODEL` |
 | Channels | `SVAAR_CHANNEL_TRANSPORT` (`caspian` or `telegram`), `SVAAR_CASPIAN_API_KEY`, `SVAAR_CASPIAN_BASE_URL`, `SVAAR_CASPIAN_WEBHOOK_SECRET` (webhook mode only), `SVAAR_TELEGRAM_BOT_TOKEN` |
-| Jev | `SVAAR_JEV_BASE_URL`, `SVAAR_JEV_API_KEY`, `SVAAR_JEV_MODEL`, `SVAAR_POLICY_HIGH`, `SVAAR_POLICY_LOW` |
+| Decisions | `SVAAR_POLICY_HIGH`, `SVAAR_POLICY_LOW`; the optional classifier reuses `SVAAR_LLM_*` |
 | Bolna | `SVAAR_BOLNA_API_KEY`, `SVAAR_BOLNA_AGENT_ID`, `SVAAR_VOICE_TURN_MODE` (`llm_endpoint` or `function`), `SVAAR_VOICE_TURN_TOKEN`, `SVAAR_VOICE_STATUS_SECRET` |
 | GitHub | `SVAAR_GITHUB_APP_ID`, `SVAAR_GITHUB_PRIVATE_KEY_B64`, `SVAAR_GITHUB_INSTALLATION_ID`, `SVAAR_GITHUB_WEBHOOK_SECRET` |
 | Jira | `SVAAR_JIRA_BASE_URL`, `SVAAR_JIRA_EMAIL`, `SVAAR_JIRA_API_TOKEN`, `SVAAR_JIRA_DEFAULT_PROJECT_KEY` |
@@ -634,17 +652,17 @@ Start date Oct 18, 13 days. Target a complete, recorded demo by Oct 30 and submi
 | Dates | Work | Done when |
 |---|---|---|
 | Oct 18 | Smoke checks: the six Caspian questions (section 19), whether Bolna accepts a custom LLM endpoint, `GET /user/me`, one outbound Bolna test call to your phone. Start `identity` and `actions` | Caspian and Bolna answers are written down; your phone rings from Bolna |
-| Oct 19 | `actions` (registry, validation, authorization, tier gate, per-channel permissions, `tool_executions`), `approvals` (atomic confirmations), Jev key, Jev adapter, fallback, policy layer. Transport and turn mode locked at end of day; define the voice intent-router and transcript-usability schemas; implement the deterministic mission-guard interface | Unit tests prove a tier-2 tool never runs without a confirmed confirmation, and Jev failures route to the fallback; `alembic check` is clean; P0 voice decisions have typed schemas and safe fallback behavior; mission-guard tests reject tools outside the active mission |
+| Oct 19 | `actions` (registry, validation, authorization, tier gate, per-channel permissions, `tool_executions`), `approvals` (atomic confirmations), decision engine interface, heuristic fallback, policy layer. Transport and turn mode locked at end of day; define the voice intent-router and transcript-usability schemas; implement the deterministic mission-guard interface | Unit tests prove a tier-2 tool never runs without a confirmed confirmation, and decision failures route to the fallback; `alembic check` is clean; P0 voice decisions have typed schemas and safe fallback behavior; mission-guard tests reject tools outside the active mission |
 | Oct 20 to 21 | `agent`: transport protocol, Caspian transport (or Telegram), inbound dedupe, LLM adapter with native-tool smoke check, tool loop with chat and voice profiles, prompts, memory, outbox sender, `TurnRunner`; `gateway` container; integrate the voice intent router and transcript usability gate into `TurnRunner`; test ambiguous speech and fallback behavior | You enroll with an invite in chat, ask `whoami` and a read tool, and get replies; a resent message is processed once; voice turns route clear requests correctly, clarify ambiguous requests, and never invoke tools for unusable transcripts |
 | Oct 22 to 23 | `voice`: outbound client, `voice_calls` with missions, turn route, `voice_turns` idempotency, status handler with IP check and dedupe, tunnel, `phone_verify` mission | A real call reaches your phone, the phone verifies, a spoken question is answered by the agent, and `completed` is processed once even if delivered twice |
 | Oct 24 to 25 | GitHub webhook (HMAC, delivery dedupe, repo mapping), App adapter, `events`, timeline, failure fingerprints, alerts through the outbox | A failing workflow produces a chat alert, and you hear the ordered timeline by chat and by voice |
-| Oct 26 to 27 | Claim detection, evidence lookup, `claim_check` and `escalation` missions, Jev classification, acknowledgement, guarded polling loop in `jobs`, CI failure category plus flaky-vs-real classification, adaptive escalation, labelled Jev evaluation set | An unacknowledged alert becomes a call exactly once, and `no-answer` leaves the claim `unverified`; CI classification and escalation validate independently, fallback behavior is tested, and each decision is auditable; missing or failed calls still leave claims unverified |
-| Oct 28 | Negotiation agents, validator, Jev pre-screening, `confirmation` mission, tier-2 tools confirmed across channels, Jira ticket tool | A proposal is rejected, revised, approved; a rerun waits for a nonce read aloud |
+| Oct 26 to 27 | Claim detection, evidence lookup, `claim_check` and `escalation` missions, claim-answer classification, acknowledgement, guarded polling loop in `jobs`, CI failure category plus flaky-vs-real classification, adaptive escalation, labelled evaluation set | An unacknowledged alert becomes a call exactly once, and `no-answer` leaves the claim `unverified`; CI classification and escalation validate independently, fallback behavior is tested, and each decision is auditable; missing or failed calls still leave claims unverified |
+| Oct 28 | Negotiation agents, validator, `confirmation` mission, tier-2 tools confirmed across channels, Jira ticket tool | A proposal is rejected, revised, approved; a rerun waits for a nonce read aloud |
 | Oct 29 | One replay of a failed pipeline in the sandbox; exception draft export | Replay is labelled simulated; a draft file exports |
 | Oct 30 | Rehearse, record the demo, measure turn latency and time to first audio | A clean take under three minutes |
 | Oct 31 | Submission write-up and final checks | Submitted |
 
-Cut order if time runs short: exception draft export, Jira tool, replay variety, Jev pre-screening, Slack through Caspian. Never cut: identity, the `actions` gate, one working channel, the Bolna loop, the timeline, the claims flow, the decision audit.
+Cut order if time runs short: exception draft export, Jira tool, replay variety, Slack through Caspian. Never cut: identity, the `actions` gate, one working channel, the Bolna loop, the timeline, the claims flow, the decision audit.
 
 Each milestone ends with `ruff format --check`, `ruff check`, `alembic check` and `pytest` passing.
 
@@ -657,7 +675,7 @@ Each milestone ends with `ruff format --check`, `ruff check`, `alembic check` an
 5. The corrected pipeline replays in the sandbox, shown as simulated.
 6. The lead asks Svaar in chat to rerun the workflow. Svaar creates a confirmation and posts the nonce in chat. Svaar calls the lead, the lead reads the nonce aloud, and the rerun happens once.
 
-Show the `decisions` and `tool_executions` tables once, to make Jev's role and the audit trail concrete.
+Show the `decisions` and `tool_executions` tables once, to make the decision audit and tool trail concrete.
 
 ## 17. Testing
 
@@ -666,11 +684,11 @@ Show the `decisions` and `tool_executions` tables once, to make Jev's role and t
 - **Transports:** a contract test suite runs against every `ChannelTransport` implementation; an unauthenticated sender identity never creates a verified binding.
 - **Identity:** invites are single-use and expire; no organization is created from chat; an unverified phone is never called.
 - **Dedupe:** a resent chat message, a resent GitHub delivery and a retried voice turn each take effect once; a failed message can be retried.
-- **Adapter and policy:** mocked Jev for success, invalid payload, timeout and low confidence; boundary tests at each threshold.
+- **Engine and policy:** mocked classifier responses for success, invalid payload, timeout and low confidence, plus heuristic fallback; boundary tests at each threshold.
 - **Voice intent router:** labelled examples for every allowed intent, ambiguous utterances, unrelated requests, low confidence and fallback behavior.
 - **Transcript usability gate:** clear speech proceeds; garbled, incomplete or ambiguous speech requests repetition or clarification and cannot create evidence or confirm actions.
 - **Mission guard and missions:** each voice mission exposes only its registered tools; requests for tools outside that mission are refused even when proposed by the LLM; a spoken confirmation succeeds only on the exact nonce.
-- **Batched Jev decisions:** if gateway batching is supported, valid answers are retained independently when another answer is malformed; every question gets its own audit record.
+- **Grouped decisions:** when alert-time questions share one classifier request, valid answers are retained independently when another answer is malformed; every question gets its own audit record.
 - **CI classification and escalation:** all allowed labels validate; `flaky` uses the configured low-noise alert path; escalation timing, recipient authorization and call limits remain deterministic.
 - **Recovery assessment, if implemented:** only real post-rerun GitHub events can support a recovery result; replay output cannot establish recovery.
 - **Voice latency:** record per-turn latency and `time_to_first_audio` where available, verify the fixed fallback is returned within the configured deadline, and report the median with its confirmed unit.
@@ -692,13 +710,12 @@ Show the `decisions` and `tool_executions` tables once, to make Jev's role and t
 | Chat LLM does not call tools reliably | Native-tool smoke check on Oct 20; JSON-mode fallback |
 | Speech-to-text garbles nonces, IDs and codes | Short speakable alphabet, exact compare in code, read back before commit, expiry, deny by default |
 | Agent or LLM outage leaves a call silent | Fixed spoken fallback line, detail sent to chat through the outbox |
-| Some Jev gateways are alpha and request shapes differ | Adapter interface, pinned version, heuristic fallback |
-| Jev calibration is the vendor's claim | Tune on your own transcripts; validator remains final |
+| Chat-model confidence is uncalibrated | Tune thresholds on your own transcripts; the heuristic fallback and validator remain final |
 | Public endpoints on a young foundation | Voice, GitHub and (if needed) channel routes only; bearer tokens, HMAC, IP check, no sensitive logging |
 | Wallet credits, concurrency (max 10), telephony setup | `GET /user/me` before sessions, test number, confirm outbound number early |
 | Duplicate or reordered webhooks, messages and turns | Unique dedupe keys, replay-safe handlers |
 | New packages disturb teammates' work | Agree the package table change before merging |
-| Extra Jev calls increase live voice latency | Prioritize the voice intent router, transcript usability gate and mission guard. Batch alert-time decisions only when the gateway contract supports it. Measure latency before adding optional decisions |
+| Extra classifier calls increase live voice latency | Prioritize the voice intent router, transcript usability gate and mission guard. At most one classifier request per voice turn. Measure latency before adding optional decisions |
 
 ## 19. Open items
 
@@ -714,7 +731,7 @@ Caspian smoke check, answered on Oct 18:
 Other items:
 
 - Confirm whether Bolna accepts a custom LLM endpoint and how it delivers a per-call reference in each turn mode.
-- Confirm the Jev gateway, key and exact request/response contract, including per-question partial failures, confidence/probability fields, batching support and timeout behavior. Do not implement against an assumed shared schema.
+- Decide whether the structured classifier is enabled for the demo, and label a small set of transcripts to tune its thresholds.
 - Choose the chat LLM and run the native-tool smoke check, including first-token latency for voice.
 - Read Bolna's extractions page before fixing the `claim_check` call design.
 - Confirm the unit of `time_to_first_audio`.

@@ -4,9 +4,9 @@
 
 Svaar is a voice-enabled agent for engineering incidents. It lives in team chat, watches CI, rebuilds what happened from recorded events, checks status claims against evidence, calls engineers by phone to verify them, and negotiates conflicting constraints into a plan that deterministic code has validated.
 
-**Jev decides, deterministic code enforces, Bolna speaks.**
+**Models propose, deterministic code enforces, Bolna speaks.**
 
-- **Jev** is a typed decision model. It answers named questions with a value and a confidence.
+- **Models** propose. The chat LLM drafts replies and tool calls; typed decisions come from deterministic heuristics or an optional structured classifier on the same chat model.
 - **Deterministic code** validates, authorizes and acts. Nothing a model says runs a tool by itself.
 - **Bolna** is the voice layer. It turns the caller's speech into text, hands it to Svaar, speaks Svaar's reply and reports the final transcript.
 
@@ -22,7 +22,7 @@ profiles, registry-generated policy and audited voice usability/intent gates. Du
 history, inbound dedupe and an outbox worker now exist, verified with fake transports and real
 PostgreSQL. The standalone Caspian adapter has read-only connection/poll acceptance; Groq smoke
 results are user-reported. Live channel enrollment, verified provider activation, trusted
-call resolution, live Jev wiring and incident features remain unfinished. Cerebro is an
+call resolution and incident features remain unfinished. Cerebro is an
 architectural reference, not a deployed dependency.
 
 ## How it works
@@ -41,12 +41,11 @@ flowchart TD
     Actions --> Resolution["resolution"]
     Actions --> Replay["replay"]
     Incidents --> Decisions["decisions"]
-    Decisions --> Jev["Jev"]
     Sources["GitHub, Jira"] --> Integrations["integrations"]
     Integrations --> Incidents
 
     classDef external stroke-dasharray: 4 3
-    class Chat,Caspian,Caller,Bolna,Jev,Sources external
+    class Chat,Caspian,Caller,Bolna,Sources external
 ```
 
 Dashed boxes are outside Svaar.
@@ -63,7 +62,7 @@ Svaar is a FastAPI modular monolith. Each package owns its tables, models and ro
 | `identity` | Organizations, principals, roles, channel bindings (including verified phones), invites |
 | `actions` | Tool registry, argument validation, authorization, risk tiers, dispatcher, execution records |
 | `incidents` | Observed events, timelines, claims, evidence, failure fingerprints |
-| `decisions` | Jev adapter, typed decisions, confidence policy, heuristic fallback, decision audit |
+| `decisions` | Decision engine interface, typed decisions, confidence policy, heuristic engine and fallback, decision audit |
 | `voice` | Bolna client, call missions, turn routes, status webhook, voice authentication |
 | `resolution` | Constraints, negotiation agents, deterministic validator, exception draft |
 | `replay` | Isolated simulation, separate from observed events and live side effects |
@@ -199,30 +198,15 @@ When configured, application lifespan creates `app.state.agent_loop` without mak
 request and closes inference/HTTP resources on shutdown. When unset, that state is `None`.
 Compose passes model and shared decision/confirmation policy settings to app/gateway,
 not migrations. The operator token and invite TTL remain app-only. No public chat/voice route
-uses the loop yet. Jev remains unconfigured, so the composed voice gates conservatively ask
-for clarification rather than accepting heuristic confidence as permission.
+uses the loop yet. No decision classifier is configured, so the composed voice gates
+conservatively ask for clarification rather than accepting heuristic confidence as permission.
 
-Jev development currently uses mocked HTTP responses. The standalone
-`decisions.jev.VercelJevEngine` implements Vercel's TypeSafe-compatible HTTP shape
-with explicit versioned model IDs, strict per-answer validation, bounded network
-timeouts and no retries or model fallbacks. It is not connected to application
-startup or environment settings; adding a key does not activate it. No Node SDK
-or Vercel CLI setup is needed for this Python adapter.
-
-Run its offline tests without a provider key:
-
-```sh
-uv run --locked pytest tests/test_jev.py -q
-```
-
-The database audit scenarios require `SVAAR_TEST_DATABASE_URL`; they skip when it
-is unset. All provider responses in these tests are synthetic, not recorded Jev
-outputs. Mocked success does not verify model accuracy, live access or latency.
-Vercel was selected by the user, but live Jev testing is deferred because the
-catalog shown by the user excludes Jev from free Gateway credits. This does not
-change the current conservative fallback in the running application.
-Contract references: [Vercel TypeSafe API](https://vercel.com/docs/ai-gateway/sdks-and-apis/typesafe)
-and [TypeSafe Choice](https://docs.typesafe.ai/primitives/choice).
+Jev was removed from the plan on 2026-10-27. Its mocked adapter
+(`decisions.jev.VercelJevEngine`), tests and remaining code references are marked for
+deletion in plans/PLAN.md section 9 and still exist until a follow-up removes them.
+Decisions use the deterministic heuristic engine; an optional structured classifier
+on the configured chat LLM is planned (plans/PLAN.md section 9). The decision audit,
+per-question validation and policy thresholds are unchanged.
 
 The HTTP contract follows the provider's documented
 [OpenAI compatibility](https://console.groq.com/docs/openai) and
@@ -291,7 +275,7 @@ Caspian 429 rejections can retry; other 4xx rejections are permanent. Queued rec
 are reconciled by GET using their delivery IDs. A crash leaving sending is treated
 as uncertain; those rows require operator review rather than automatic resend.
 
-No live sends, billing operations, Bolna calls or Jev requests are part of these
+No live sends, billing operations or Bolna calls are part of these
 checks. Operator reconciliation UI and voice/call memory remain pending. Gateway wiring
 and durable cursors are described below; live channel acceptance is separate.
 
@@ -387,7 +371,6 @@ only to the processes that need them as the feature is implemented.
 | Area | Variables |
 | --- | --- |
 | Channels | `SVAAR_CASPIAN_WEBHOOK_SECRET`, `SVAAR_TELEGRAM_BOT_TOKEN` |
-| Jev | `SVAAR_JEV_BASE_URL`, `SVAAR_JEV_API_KEY`, `SVAAR_JEV_MODEL` |
 | Bolna | `SVAAR_BOLNA_API_KEY`, `SVAAR_BOLNA_AGENT_ID`, `SVAAR_VOICE_TURN_MODE` (`llm_endpoint` or `function`), `SVAAR_VOICE_TURN_TOKEN`, `SVAAR_VOICE_STATUS_SECRET` |
 | GitHub | `SVAAR_GITHUB_APP_ID`, `SVAAR_GITHUB_PRIVATE_KEY_B64`, `SVAAR_GITHUB_INSTALLATION_ID`, `SVAAR_GITHUB_WEBHOOK_SECRET` |
 | Jira | `SVAAR_JIRA_BASE_URL`, `SVAAR_JIRA_EMAIL`, `SVAAR_JIRA_API_TOKEN`, `SVAAR_JIRA_DEFAULT_PROJECT_KEY` |
@@ -467,7 +450,7 @@ POSIX shell:
 SVAAR_TEST_DATABASE_URL=postgresql+psycopg://svaar:svaar_dev_only@localhost:5433/svaar_test uv run --locked pytest
 ```
 
-Feature tests cover behavior and trust rules, not implementation details: the dispatcher never runs a risky tool unconfirmed, a confirmation runs at most once under concurrent attempts, invites are single-use, duplicates take effect once, and absent evidence never contradicts a claim. Every provider integration (Caspian, Telegram, Bolna, Jev, GitHub, Jira, the chat LLM) is mocked behind its adapter in tests.
+Feature tests cover behavior and trust rules, not implementation details: the dispatcher never runs a risky tool unconfirmed, a confirmation runs at most once under concurrent attempts, invites are single-use, duplicates take effect once, and absent evidence never contradicts a claim. Every provider integration (Caspian, Telegram, Bolna, GitHub, Jira, the chat LLM) is mocked behind its adapter in tests.
 
 Those feature tests are future acceptance requirements. Current tests cover infrastructure,
 including gateway diagnostic cleanup and refusal to advertise an unimplemented listener.
@@ -573,7 +556,7 @@ tested with fake inference/providers and real PostgreSQL.
 The live flow is still incomplete: no chat issuance command/private code delivery,
 provider turn/status endpoint or real verification call is enabled. Bolna reference
 and retry-index delivery must be verified before exposing a route. No code is sent
-or call placed automatically. Unconfigured Jev continues to request clarification.
+or call placed automatically. Without a configured classifier, voice gates continue to request clarification.
 See plans/anomaly.md A-015; development migrations still need applying.
 
 ### Request phone verification in private chat

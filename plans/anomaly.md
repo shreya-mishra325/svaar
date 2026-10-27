@@ -81,6 +81,9 @@ do not silently delete them. Do not paste secrets or sensitive payloads.
   private_text_messages_in_sample=0, sender_identity_verified=false,
   outbound_delivery_verified=false, messages_sent=0. Connection credentials are
   no longer a blocker. This supersedes the missing-field observation above.
+- Superseded 2026-10-27: Jev is removed from the plan (A-022). The Jev payload,
+  batching and gateway questions above no longer block anything.
+
 
 ## A-003: Feature configuration names are not active settings
 
@@ -746,3 +749,26 @@ rechecked before writes. Duplicate/conflicting signatures do not overwrite the
 first record. Existing events/incident links are not changed. Guarded runtime
 orchestration and log-driven grouping remain incomplete; no live provider
 acceptance or production recovery is established.
+
+## A-022: Jev removed from the plan
+
+- Status: Resolved plan change; recorded for the team.
+- Decision: User decision on 2026-10-27 to drop Jev entirely. Free Gateway credits
+  excluded Jev (A-002 history), and no live response was ever obtained.
+- Removed from the plan: SVAAR_JEV_* settings, Jev pre-screening and live Jev
+  verification. Code is not deleted yet: decisions/jev.py, tests/test_jev.py and
+  the remaining Jev references are listed under "Marked for deletion" in
+  PLAN.md section 9.
+- Replacement (PLAN.md section 9): one DecisionEngine interface with two engines.
+  Deterministic heuristics are the default and the fallback; an optional
+  structured classifier on the existing chat LLM (SVAAR_LLM_*) may answer the
+  same typed slots with per-answer validation. The classifier is planned, not
+  implemented. Decision slots, policy thresholds, per-question audit and the rule
+  that no decision ever sets contradicted or grants authorization are unchanged.
+- Planned code change: rename DecisionSource.JEV ("jev") to DecisionSource.MODEL
+  ("model"); existing audit rows that say "jev" stay as recorded history.
+- Core rule is now: Models propose, deterministic code enforces, Bolna speaks.
+  Updated in PLAN.md, README.md and rules.md; the agent prompt and website footer
+  are marked for update.
+  CEREBRO_CONTEXT.md is an unedited historical reference and still mentions Jev.
+- Owner: Team awareness; no individual assigned.

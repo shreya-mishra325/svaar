@@ -112,10 +112,12 @@ Target: Oct 18 to 19. Prerequisite: Phase 0.
 - [x] Scoped organizations/principals, expiring single-use invites and trusted bindings.
 - [x] Registry/dispatcher, validated arguments, org/role/channel checks and execution audit.
 - [x] Owner-bound atomic confirmations, expiry and durable uncertain execution states.
-- [x] Typed standalone Jev adapter, confidence policy, per-question fallback and audit.
+- [x] Typed decision engine interface, confidence policy, per-question fallback and audit.
+  The standalone Jev adapter built for this item is marked for deletion (A-022).
 - [x] P0 usability/intent schemas and deterministic mission allowlists.
 - [x] Implemented feature settings: operator, LLM, Caspian, Bolna adapter and GitHub HMAC.
-- [ ] Jev runtime settings/provider composition and remaining voice route credentials.
+- [ ] Remaining voice route credentials. Jev runtime settings were dropped with the
+  plan change on 2026-10-27 (A-022).
 - [ ] Operator reconciliation path for uncertain external execution (A-006).
 - [ ] Close outstanding implementation-design decisions recorded in A-007.
 
@@ -123,7 +125,7 @@ Target: Oct 18 to 19. Prerequisite: Phase 0.
 
 - [x] Unconfirmed tier-2 actions do not execute; concurrent confirmations run once locally.
 - [x] Owner/channel/expiry/role rechecks and invalid-argument cases pass.
-- [x] Missing/invalid/unavailable Jev answers fall back independently and are audited.
+- [x] Missing/invalid/unavailable decision answers fall back independently and are audited.
 - [x] Mission limits cannot be expanded by model/intent output.
 - [x] Implemented standalone provider contracts have mocked HTTP tests.
 - [ ] Full provider composition and real-adapter uncertain-outcome recovery checks.
@@ -137,12 +139,12 @@ Target: Oct 18 to 19. Prerequisite: Phase 0.
 - [x] Verify Bolna account access, positive wallet, available concurrency and processed agent.
 - [ ] Choose and verify Bolna turn mode and bridge configuration.
 - [ ] Verify Bolna call-reference delivery and one explicitly authorized outbound call.
-- [ ] Verify the selected Jev model/gateway with a real response; Vercel is selected,
-  mock-only work is approved, and no purchase is authorized or implied (A-002).
+- Removed by plan change on 2026-10-27: live Jev model/gateway verification. There is no
+  decision-model provider left to verify (A-022).
 
 Exit check: unconfirmed tier-2 tools never execute; concurrent confirmations cannot
 create duplicate local execution attempts; authorization is rechecked; invalid or
-unavailable Jev responses fall back safely; mission limits are enforced. Required
+unavailable decision answers fall back safely; mission limits are enforced. Required
 quality checks pass. Contract blockers: A-002; execution ambiguity: A-006.
 
 ## Phase 2: Shared chat and voice agent runtime
@@ -357,7 +359,7 @@ and validation routes; this does not establish the real confirmed CI action flow
 - [ ] Confirmation-call domain flow with exact owner/channel/nonce/expiry checks.
 - [ ] Gated CI action with durable outcomes and no blind risky retry.
 - [ ] Optional: Jira read/create adapter, creation gated as tier 2.
-- [ ] Optional: Jev proposal pre-screening outside the critical voice path.
+- Removed by plan change on 2026-10-27: optional Jev proposal pre-screening (A-022).
 
 ### Offline verification
 
