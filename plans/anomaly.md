@@ -772,3 +772,80 @@ acceptance or production recovery is established.
   are marked for update.
   CEREBRO_CONTEXT.md is an unedited historical reference and still mentions Jev.
 - Owner: Team awareness; no individual assigned.
+
+
+### A-022 implementation update, 2026-10-27
+
+Removed the retired adapter/provider tests and active references. New decisions
+use source=model; historical provider audit rows remain unchanged and a regression
+test proves their preservation. The optional existing-model structured classifier
+is implemented, with SVAAR_CLASSIFIER_ENABLED=false by default. True requires
+the existing complete LLM configuration, no additional key. App/gateway startup
+constructs it without provider requests; status-only ingress starts no model.
+
+Voice prechecks remain conservative. Usability/intent share one request inside
+the turn budget; invalid slots independently fall back, no tools are offered,
+and late inference never authorizes actions. Short unclear speech cannot consume
+phone attempts; exact-code gates and mission policy remain enforced.
+594 tests plus lint/format, frontend build, Compose and schema checks passed.
+Remaining: explicit opt-in, live classifier acceptance, labelled tuning and
+future claim/CI/escalation slot implementations. No live model request was made.
+The plan's marked-for-deletion table is historical task intent now implemented;
+PLAN.md and CEREBRO_CONTEXT.md were left unchanged.
+
+
+### A-018 implementation resolution, 2026-10-27
+
+The role-broadcast placeholder is superseded by explicit operator-selected
+per-repository ownership and a per-incident snapshot (migration 0016). Owners
+must belong to the organization; no role/name/latest-active guess is made.
+Future mapping changes do not transfer existing owners. An explicit operator flag
+can assign only open unowned incidents and queue one private alert atomically.
+Missing owner/route never broadcasts. Acknowledgement does not transfer ownership.
+
+Implementation verified: 608 tests passed, lint/format and migration checks passed;
+both local databases are 0016. No live owner configuration or chat delivery was
+performed. A-018's missing owner implementation is resolved; live acceptance and
+escalation scheduling are separate pending items. General owner transfer/recovery
+tooling is not part of this implementation. No provider mutation or Git operation
+was performed.
+
+
+## A-023: initial claim core and explicit-tool plan extensions
+
+- Added 2026-10-27: record_claim/check_claim are tier-1 chat tools beyond the
+  plan's named catalogue; they expose bounded local assertion/evidence operations,
+  never a provider mutation. list_claims and operator GET claims match the plan.
+- Assertions use authenticated author/org and original caller text, not
+  model-proposed identity or paraphrases. One author/source correlation can
+  create one claim; source conflicts are refused rather than silently edited.
+- Automatic confirmation supports a deliberately narrow positive workflow
+  assertion grammar with exact scoped run/attempt evidence. Unknown wording is
+  unverified. Successful CI is not merge evidence; fix_merged stays unverified.
+  Current adapters produce only supporting workflow evidence, no contradicting
+  call/merge evidence.
+- Still missing: dedicated automatic claim-detection slot/runtime, merge-event
+  ingress, claim_check call context/record_claim_answer, completed-call
+  classification, verification tier policy and guarded escalation.
+  check_claim is explicit; no scheduler refreshes claims yet.
+- Evidence: 626 tests passed; lint/format, 0017 test round trip and local/test
+  schema checks passed. No live calls, messages or provider requests occurred.
+  This is partial Phase 5, not end-to-end acceptance.
+
+## A-024: escalation preparation is implemented; live dispatch remains pending
+
+- Added 2026-10-27. Durable preparation is gateway-only and opt-in, default false.
+  It uses confirmed owner-alert delivery, open explicit ownership, one verified
+  phone, one intent per incident and a per-recipient preparation cooldown.
+- There is no automatic dialer or provider client in jobs. Prepared incident-bound
+  calls fail closed in default CallService without a composition-supplied guard.
+  Acknowledgement before preparation cancels work; an already prepared intent
+  still needs incident/owner authorization rechecked at actual dispatch.
+- Remaining: compose authorized dispatch with account readiness, actual call limits,
+  final recipient/incident checks, uncertain-placement reconciliation and live
+  acceptance. A preparation cooldown is not proof of provider call timing.
+  The existing teammate-owned Bolna wiring remains pending.
+- Evidence: 639 tests passed without skips; independent rollback, concurrency,
+  delivery grace, acknowledgement, phone retry, cooldown, default dialing refusal
+  and bound incident tool checks passed. Ruff, Compose, migration 0018 test round
+  trip and local/test schema checks passed. No live effects or Git mutations.

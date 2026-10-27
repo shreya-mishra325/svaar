@@ -1,6 +1,6 @@
 # Svaar phase checkpoints
 
-Last reviewed: 2026-10-26 (Asia/Calcutta).
+Last reviewed: 2026-10-27 (Asia/Calcutta).
 
 ## How to use this checklist
 
@@ -32,11 +32,11 @@ explicit authorization covering the action and target.
 
 ## Current position
 
-Latest implementation verification: **586 tests passed on 2026-10-26**, plus
+Latest implementation verification: **639 tests passed on 2026-10-27**, plus
 Ruff lint/format and alembic check against the isolated PostgreSQL test database.
 The database container is healthy. Both local databases are at revision
-0015 with clean drift checks; the merge graph was verified (A-020) and the
-latest test-only 0015 -> 0014 -> 0015 round trip passed. Compose validation passed. The existing Starlette warning is A-004.
+0018 with clean drift checks; the merge graph was verified (A-020) and the
+latest test-only 0018 -> 0017 -> 0018 round trip passed. Compose validation passed. The existing Starlette warning is A-004.
 
 | Phase | Implementation | Offline verification | Live acceptance |
 | --- | --- | --- | --- |
@@ -44,8 +44,8 @@ latest test-only 0015 -> 0014 -> 0015 round trip passed. Compose validation pass
 | 1: Contracts and safety | Safety core done; provider composition partial | Core and adapter mocks passed | Provider checks incomplete |
 | 2: Shared runtime | Chat/gateway/internal voice core done; external voice binding pending | Core and persistence checks passed | Complete chat/voice flow pending |
 | 3: Voice transport | Call/challenge/follow-up core and status receipts done; turn bridge pending | Implemented scope passed | Real verification call pending |
-| 4: CI and timeline | Ingress, incident grouping/timeline/actions and role-based alerts done; App/log fingerprint/owner mapping pending | Ingress checks passed | Real incident/alert/timeline pending |
-| 5: Claims and escalation | Not implemented | Pending | Pending |
+| 4: CI and timeline | Ingress, timeline/actions, explicit ownership and private owner alerts done; runtime log grouping pending | Ingress checks passed | Real incident/alert/timeline pending |
+| 5: Claims and escalation | Claim/workflow-evidence core and guarded intent jobs done; detection and live calls pending | Implemented core passed | Pending |
 | 6: Resolution and confirmation | Deterministic constraints, negotiations and validator routes done; risky CI flow pending | Pending for domain flow | Pending |
 | 7: Replay | Isolated operator-supplied simulation implemented | Isolation tests passed | Required simulation demonstration pending |
 | 8: Rehearsal | Not started | Full scenario rehearsal pending | Calls, timing and recording pending |
@@ -64,10 +64,11 @@ The configured tunnel/webhook returned HTTP 401 initially, then HTTP 422 after
 configuration changes. Payload validation remains unresolved; do not mark
 callback processing, the conversation bridge or real-call acceptance complete.
 
-Next independent build: incident grouping -> ordered timeline -> get_timeline ->
-deduplicated owner alert. This needs new software, not just credentials.
-In parallel, resolve Bolna account/turn-reference/index delivery before exposing
-its authenticated routes. No separate stable sender-ID contract is required for
+Next demo-critical build: explicit incident owner -> evidence-backed claims ->
+guarded escalation -> confirmed CI action. Timeline/grouping and private alerts
+already have tested implementations; their live acceptance remains incomplete.
+The optional classifier is implemented but disabled by default until explicitly
+enabled and accepted live. Voice bridge/reference/retry wiring stays with the teammate. No separate stable sender-ID contract is required for
 Caspian under the approved MVP address policy (A-011).
 
 ## Phase 0: Engineering foundation
@@ -113,7 +114,8 @@ Target: Oct 18 to 19. Prerequisite: Phase 0.
 - [x] Registry/dispatcher, validated arguments, org/role/channel checks and execution audit.
 - [x] Owner-bound atomic confirmations, expiry and durable uncertain execution states.
 - [x] Typed decision engine interface, confidence policy, per-question fallback and audit.
-  The standalone Jev adapter built for this item is marked for deletion (A-022).
+  Jev adapter/provider tests removed; optional existing-chat-model classifier
+  implemented and composed behind an explicit opt-in switch (A-022).
 - [x] P0 usability/intent schemas and deterministic mission allowlists.
 - [x] Implemented feature settings: operator, LLM, Caspian, Bolna adapter and GitHub HMAC.
 - [ ] Remaining voice route credentials. Jev runtime settings were dropped with the
@@ -163,6 +165,8 @@ Target: Oct 20 to 21. Prerequisites: identity/action gate and selected transport
 - [x] Durable outbox with receipts, safe rejection backoff and no blind uncertain retries.
 - [x] Internal TurnRunner injection sharing AgentLoop without agent/voice cross-imports.
 - [x] Usability/intent gates and deterministic mission checks in the shared voice path.
+- [x] Heuristic-first speech precheck and at most one grouped classifier request
+  per voice turn, bounded by the existing deadline, with per-slot fallback/audit.
 - [x] Gateway polling, persistent cursor, stream ownership, shutdown and heartbeat health.
 - [ ] External authenticated voice call-reference and retry-index mapping (A-013).
 - [ ] Voice confirmation ticket delivery and operator recovery tooling (A-006/A-013).
@@ -174,6 +178,8 @@ Target: Oct 20 to 21. Prerequisites: identity/action gate and selected transport
 - [x] Isolation, concurrent workers, durable cursor restart and crash boundaries pass.
 - [x] Private-code chat delivery -> fake call -> exact voice verification passes.
 - [x] Unusable/ambiguous speech cannot run tools; limits and late inference checks pass.
+- [x] Classifier malformed/duplicate/partial/low-confidence answers, delayed results,
+  credential reuse, no-tool requests and historical audit preservation tests pass.
 - [x] Gateway composition, resource cleanup and stale heartbeat checks pass.
 - [ ] Full provider-handler and end-to-end voice latency validation.
 
@@ -272,8 +278,9 @@ Target: Oct 24 to 25. Prerequisites: scoped identity, chat delivery and incident
 - [ ] Compose enrichment into guarded runtime work and wire log-based grouping
   without rewriting observed history.
 - [x] Organization-scoped ordered timeline and get_timeline/list_incidents actions.
-- [x] Idempotent opening alerts queued to same-org ops/lead/admin private routes.
-- [ ] Explicit repository owner mapping (A-018); live alert delivery remains unverified.
+- [x] Explicit same-org repository owner and per-incident owner snapshot (A-018).
+- [x] Idempotent private alerts to that owner only; no missing-owner broadcast fallback.
+- [ ] Configure a real owner and verify actual alert delivery.
 - [ ] Implement the planned operator POST /incidents manual-creation route.
 - [ ] Complete the incident pipeline without automatic workflow reruns.
 
@@ -288,7 +295,9 @@ Target: Oct 24 to 25. Prerequisites: scoped identity, chat delivery and incident
   normalized/scoped signature tests.
 - [ ] Live App/log retrieval acceptance.
 - [x] Implemented grouping/linkage, occurrence-order and scoped timeline/action tests.
-- [ ] Log-tail fingerprint and explicit owner-routing tests.
+- [x] Explicit owner routing, scoped provisioning, backfill, atomic rollback and
+  concurrency tests.
+- [ ] Runtime log-tail grouping tests.
 - [ ] Workflow failure -> one incident -> one owner alert -> chat/voice timeline slice.
 
 ### Live acceptance
@@ -308,25 +317,34 @@ Target: Oct 26 to 27. Prerequisites: events, outbox and verified voice calls.
 
 - [ ] Phase complete.
 
-Existing mission definitions, decision audit and call/outbox safeguards are reusable
-foundations, not implemented claims or escalation.
+Claims and deterministic workflow evidence now have a tested initial core.
+Guarded local escalation preparation is implemented. Call verification and live
+automatic dialing remain pending (A-024).
 
 ### Implementation
 
-- [ ] Detect claims and perform deterministic evidence lookup with provenance.
+- [x] Scoped authored claims, source dedupe and deterministic exact workflow-success
+  evidence lookup with append-only provenance.
+- [x] Dispatcher-owned recording/checking/listing and operator read-only claims route.
+- [ ] Dedicated automatic claim detection and merge-event evidence ingestion (A-023).
 - [x] Incident acknowledgement action is registered through the dispatcher.
 - [ ] Implement claim_check/escalation handlers and guarded scheduling.
 - [ ] Classify usable final answers and derive status from persisted evidence.
 - [ ] Preserve unverified for missing evidence, unusable speech and failed calls.
-- [ ] Guarded jobs, row claiming, durable escalation intents and deterministic call limits.
+- [x] Guarded preparation jobs, row claiming, durable incident-bound intents,
+  confirmed-delivery grace and per-recipient preparation cooldown (A-024).
+- [ ] Live dispatch readiness, final recipient/incident checks and actual call limits.
 - [ ] Independently validated CI category/adaptive escalation decisions and labelled audit.
 - [ ] Use batching only if the actual gateway contract verifies support.
 
 ### Offline verification
 
-- [ ] Evidence/claim state transitions and missing-evidence cases pass.
+- [x] Initial workflow claim confirmation, absent/failed evidence, merge ambiguity,
+  statement/target mismatches, dedupe, org isolation and immutable evidence tests pass.
+- [ ] Call-derived evidence transitions and automatic detection tests.
 - [ ] Wrong-person, unusable-answer and failed/unanswered-call cases remain unverified.
-- [ ] Concurrent escalation produces one intent; one failed job does not stop others.
+- [x] Concurrent preparation produces one intent; one failed job rolls back without
+  stopping another recipient's job.
 - [ ] Timing, recipient authorization, call limits and per-question decision audit pass.
 
 ### Live acceptance
@@ -1015,3 +1033,116 @@ on svaar_test; local svaar upgrade/check passed. Both databases are at 0015.
 No new dependency, live provider request, call, message or Git mutation was made.
 The existing A-004 warning remains; the user still needs to complete the paused
 Git merge manually.
+
+
+### Oct 27: Jev removal and optional structured classifier
+
+Removed decisions/jev.py, provider-specific tests and active Jev references from
+types, docstrings, agent policy, configuration examples and the website footer.
+DecisionSource.MODEL replaces the retired source for new answers; historical
+audit rows are neither rewritten nor migrated. Core policy and mission gates
+remain unchanged.
+
+Implemented decisions/classifier.py with strict named JSON answers, independent
+slot validation, finite confidence checks and conservative per-slot fallback.
+The existing HttpChatModel supplies one bounded request without tools or retries.
+Application/gateway composition enables it only when SVAAR_CLASSIFIER_ENABLED=true
+and existing LLM configuration is complete; default false remains heuristic-only.
+No extra provider key, dependency, schema change or startup network call is added.
+
+The voice gate locally rejects unclear short/noisy speech before inference,
+accepts six-digit code candidates for further checking, and groups usability/
+intent into one classifier request. Returned labels never change call mission.
+Inference shares the voice deadline; abandoned results cannot dispatch tools.
+Tests retain invented-code rejection, exact code checks, phone-code history
+redaction and durable duplicate behavior. Failure-path tests now use clear text;
+new regressions verify unclear speech consumes no verification attempts.
+
+Verification: 594 PostgreSQL tests passed without skips (retired provider tests
+removed, classifier/regression coverage added). Ruff lint/format, frontend
+production build, Compose config and alembic check passed; A-004 warning remains.
+The database initially was stopped; starting the existing service resolved that
+test setup error. Schema remains 0015. Real classifier responses/calibration and
+the Bolna bridge are not verified. No live messages, calls, model/provider
+requests, .env changes or Git mutations were made.
+
+
+### Oct 27: explicit incident ownership and owner-only alerts
+
+Migration 0016 adds nullable owner references on repo_mappings and incidents.
+Mapping creation can take a same-org principal owner; operator-only
+PUT /repo-mappings/{repository_id}/owner configures the future default.
+A new incident snapshots the approved same-org owner. Invalid/missing ownership
+never falls back to role broadcasts. Only the owner receives the durable private
+alert if one verified route exists. Acknowledging an incident does not transfer it.
+
+The explicit assign_unowned_incidents flag can assign only open unowned incidents,
+queueing their deduplicated alert in the same transaction. Assigned/acknowledged/
+resolved incidents are never transferred. Mapping updates do not reroute existing
+incident owners. Missing route means no notification; no delivery is promised.
+No phone call, escalation job or model-proposed owner selection is enabled.
+
+Verification: 608 PostgreSQL tests passed without skips. Added scope, developer-
+owner routing, no-broadcast, future snapshot, explicit backfill, concurrent dedupe,
+rollback and downgrade protection coverage. Ruff lint/format/whitespace checks
+passed. Test-only 0016 -> 0015 -> 0016 and drift checks passed; development upgrade/
+check passed. Both databases are at 0016; A-004 warning remains.
+Prior tests caught an extra webhook-dispatch argument and a missing test import;
+both were fixed before the passing full run. No live provider requests, messages,
+calls, .env edits, new dependencies or Git mutations were performed.
+Next implementation: claims/evidence and guarded escalation, using this explicit
+owner. Live owner setup and alert acceptance remain incomplete.
+
+
+### Oct 27: scoped claim/evidence core
+
+Migration 0017 introduces claims and append-only event-linked evidence. Claims
+are scoped to an incident/org and authenticated author. Source correlation
+deduplicates retries; conflicting content cannot rewrite a recorded assertion.
+record_claim/check_claim/list_claims dispatch through actions; AgentLoop binds
+statement text to the caller's original message. GET /incidents/{id}/claims is
+operator-only and read-only. Added tool names are a scoped plan extension (A-023).
+
+The workflow-success rule needs a narrow positive assertion plus exact run,
+attempt, optional SHA and same-incident accepted signed observation. Named run
+numbers cannot be substituted by the model. Missing, failed, foreign, mismatched
+or ambiguous facts never create contradicting evidence. fix_merged cannot be
+confirmed by successful CI and stays unverified without a merge/call evidence
+source. Rules derive status only after evidence is persisted; the model cannot
+set status, author, organization, stance or evidence IDs via tool arguments.
+
+Dedicated automatic claim detection, merge-event ingestion, call-answer tools,
+classification/retention and verification/escalation remain pending. Statuses
+refresh through explicit check_claim, not a new automatic job. Existing incident
+history and live providers are untouched. There is no claim-driven dialer yet.
+
+Verification: 626 PostgreSQL tests passed without skips, including 18 new claim/
+evidence cases. Ruff lint/format/whitespace passed. Test-only 0017 -> 0016 -> 0017
+and schema checks passed; local development upgrade/check passed. Both databases
+are at 0017. A-004 warning remains. No new dependency, model/provider call,
+message, phone call, .env edit or Git mutation occurred. Phase 5 remains incomplete.
+
+## 2026-10-27: guarded escalation preparation
+
+Phase 5 implementation and offline checks progressed; phase completion remains open.
+Migration 0018 adds escalation_jobs and incident-bound voice intents. The optional
+gateway callback starts grace only from confirmed owner-alert delivery, checks an
+open incident's explicit owner and exactly one verified phone, claims rows with
+SKIP LOCKED and enforces per-recipient cooldown. One incident can have at most one
+escalation intent. Missing delivery/phone defers; acknowledgement before preparation
+cancels; independent savepoints contain failures. Bound voice incident tools cannot
+select another incident.
+
+Evidence: 639 tests passed, no skips; Ruff lint/format, Compose validation and
+git diff --check passed. Test-only 0018 -> 0017 -> 0018 and schema checks passed;
+development database upgraded to 0018 with no drift. Existing warning: A-004.
+Relevant files: jobs/models.py, jobs/escalation.py, gateway.py, agent/worker.py,
+agent/notifications.py, voice/calls.py, voice/models.py, voice/runtime.py,
+incidents/tools.py, actions/registry.py, config.py, migration 0018 and escalation tests.
+
+Integration status: preparation is local, opt-in and disabled by default. No
+provider requests, calls, messages or Git mutations occurred. Default CallService
+refuses these incident-bound intents without an injected authorization guard.
+Live dispatch/readiness, final incident checks and delivery remain pending with
+the teammate's voice wiring (A-024). This does not complete claim_check, automatic
+claim detection, call-derived evidence or the phase's live acceptance criteria.

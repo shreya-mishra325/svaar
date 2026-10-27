@@ -192,21 +192,38 @@ Python file reload does not ensure new environment values have been loaded.
 | `SVAAR_CONFIRMATION_MAX_ATTEMPTS` | `5`; wrong codes beyond this lock the owner's pending confirmations |
 | `SVAAR_ALLOW_SAME_CHANNEL_CONFIRMATION` | `false`; enable only for a demo without a second verified channel |
 | `SVAAR_POLICY_HIGH`, `SVAAR_POLICY_LOW` | `0.85` and `0.55`; low must be below high. Placeholders until tuned on labelled transcripts |
+| `SVAAR_ESCALATION_JOBS_ENABLED` | `false`; gateway-only local escalation intent preparation, no dialing |
+| `SVAAR_ESCALATION_AFTER_SECONDS` | `600`; acknowledgement grace after confirmed owner-alert delivery, 60 to 86400 |
+| `SVAAR_ESCALATION_COOLDOWN_SECONDS` | `3600`; minimum interval between intents for one recipient, 60 to 86400 |
+| `SVAAR_ESCALATION_BATCH_SIZE` | `10`; bounded jobs per gateway cycle, 1 to 50 |
+| `SVAAR_CLASSIFIER_ENABLED` | `false`; optional typed classifier reusing the configured chat model |
 | `SVAAR_LLM_BASE_URL`, `SVAAR_LLM_API_KEY`, `SVAAR_LLM_MODEL` | Set all three or leave all unset. Base URL must use HTTP(S) without credentials/query/fragment; the API key is secret |
 
 When configured, application lifespan creates `app.state.agent_loop` without making a provider
 request and closes inference/HTTP resources on shutdown. When unset, that state is `None`.
 Compose passes model and shared decision/confirmation policy settings to app/gateway,
 not migrations. The operator token and invite TTL remain app-only. No public chat/voice route
-uses the loop yet. No decision classifier is configured, so the composed voice gates
-conservatively ask for clarification rather than accepting heuristic confidence as permission.
+uses the loop yet. By default SVAAR_CLASSIFIER_ENABLED=false keeps conservative
+heuristic-only decisions, so composed voice gates request clarification.
 
-Jev was removed from the plan on 2026-10-27. Its mocked adapter
-(`decisions.jev.VercelJevEngine`), tests and remaining code references are marked for
-deletion in plans/PLAN.md section 9 and still exist until a follow-up removes them.
-Decisions use the deterministic heuristic engine; an optional structured classifier
-on the configured chat LLM is planned (plans/PLAN.md section 9). The decision audit,
-per-question validation and policy thresholds are unchanged.
+Jev was removed on 2026-10-27, including its adapter and provider-specific tests.
+The optional structured classifier is implemented using the existing chat model.
+Set SVAAR_CLASSIFIER_ENABLED=true locally and restart the relevant processes to
+enable it; the three SVAAR_LLM_* settings must already be configured. No extra
+provider key is used. Compose forwards this switch only to app/gateway.
+
+The voice gate performs a local conservative speech precheck, then at most one
+classifier request containing usability and intent together. Each slot is
+validated/audited independently. Invalid or missing slots fall back with confidence
+zero and defer; heuristic confidence never authorizes execution. Six-digit code
+candidates can reach the classifier but still require exact code comparison in
+actions. Short unclear speech never consumes a verification attempt.
+
+Classifier inference shares the voice deadline, has no retries/tools, and cannot
+dispatch actions. A late classifier result cannot reach the reply model or tools.
+New decision rows use source=model or fallback; old provider audit rows are kept
+unchanged. Confidence is an uncalibrated score, not evidence. Real model acceptance
+and threshold tuning remain unverified; all classifier tests use fake inference.
 
 The HTTP contract follows the provider's documented
 [OpenAI compatibility](https://console.groq.com/docs/openai) and
@@ -854,3 +871,96 @@ Unsupported/successful/incomplete observations are refused before provider I/O.
 This is enrichment metadata, not a claim verdict or production recovery signal.
 Existing incident membership and broad workflow grouping remain unchanged until
 runtime enrichment and log-based grouping are wired together.
+
+
+### Explicit repository and incident ownership
+
+POST /api/v1/repo-mappings accepts an optional owner_principal_id. It must name
+an existing principal in the mapping's organization. Roles are not used to guess
+an owner; a developer can own a repository.
+
+An operator can configure an existing mapping through:
+PUT /api/v1/repo-mappings/{repository_id}/owner
+
+```json
+{
+  "org_id": "<organization UUID>",
+  "owner_principal_id": "<principal UUID>",
+  "assign_unowned_incidents": false
+}
+```
+
+This operator-only route changes the default for future incidents. Each newly
+opened incident snapshots the configured same-org owner. Mapping changes do not
+transfer already-owned incidents. To assign the selected owner to existing open
+unowned incidents explicitly, set assign_unowned_incidents=true. Assigned,
+acknowledged and resolved incidents are untouched. Owner assignment and its
+idempotent outbox alert commit together; repeats cannot queue another alert.
+
+Alerts target only the incident owner through the existing verified private route.
+Missing owners or missing/ambiguous private routes queue nothing; there is no
+role-based broadcast fallback. Acknowledgement records the acknowledging caller
+and does not transfer ownership. Timeline/tool summaries expose the owner ID.
+No call or escalation is started by this configuration.
+
+Migration 0016 adds nullable owner references without guessing existing owners.
+Its downgrade refuses to discard configured ownership. Explicit reassignment of
+an already-owned incident and general transfer/audit tooling are not implemented.
+Claims and guarded escalation remain subsequent work. Live owner configuration,
+chat delivery and calls have not been verified by these synthetic tests.
+
+
+### Claims and deterministic workflow evidence
+
+The initial claims core registers record_claim and check_claim as tier-1 chat
+tools, and list_claims as a chat/voice read tool subject to mission gates.
+All calls pass through actions. Author and organization come from trusted caller
+context; source correlation deduplicates one claim per author/message. AgentLoop
+replaces model-proposed statement text with the original caller message.
+Source/content conflicts do not overwrite the original assertion.
+
+Supported structured claim kinds are workflow_succeeded (exact run/attempt,
+optional commit SHA) and fix_merged. A positive workflow assertion such as
+"The build passed." can become confirmed only from matching completed-success
+observations linked to that incident and accepted signed-delivery receipts.
+Any run number present in the supported statement must match the target.
+The matcher deliberately accepts only a narrow positive assertion grammar;
+questions, negatives, compound/unrecognized wording and model-kind mismatches
+stay unverified. A model's selected label alone never establishes truth.
+
+Evidence is stored separately with event provenance, stance and rule version,
+deduplicated per claim/event and protected by a PostgreSQL append-only trigger.
+Missing facts and observed failed workflows produce no contradictory evidence.
+Successful CI never proves a fix was merged: merge claims remain unverified
+until merge-event or verified call-answer evidence is implemented. Current rules
+do not generate contradicting evidence. Mixed future evidence defers to unverified.
+
+GET /api/v1/incidents/{incident_id}/claims is an operator-authenticated read-only
+view. It returns assertions, statuses and evidence references; GET does not refresh
+statuses or call a provider. check_claim explicitly refreshes after new evidence.
+Migration 0017 adds claims/evidence and refuses downgrade while claims exist.
+
+This is a scoped core, not the complete claim workflow. Dedicated automatic
+claim detection, merge-event ingestion, record_claim_answer, completed-call
+classification/retention, verification authorization and guarded escalation jobs
+remain pending. No claim operation places a call, mutates CI or infers recovery.
+
+### Guarded escalation preparation
+
+Migration 0018 adds durable escalation jobs and an incident binding on call intents.
+The optional gateway worker prepares at most one pending escalation intent per
+open incident with an explicit owner, a confirmed delivered owner alert and exactly
+one verified phone. The acknowledgement grace begins at the outbox's confirmed
+delivery time. Queued or unknown delivery cannot start it. Acknowledgement before
+preparation cancels the job; missing phones defer it. Recipient cooldown and row
+claiming prevent concurrent duplicate preparation. Individual preparation failures
+roll back independently and retry after 60 seconds.
+
+Set SVAAR_ESCALATION_JOBS_ENABLED=true locally and restart the gateway to enable
+preparation after applying migrations. Defaults remain disabled. This worker has
+no provider client and never dials. Prepared incident-bound escalation intents are
+refused by the default CallService unless a composition-supplied authorization
+guard exists. Live placement, readiness, final incident/recipient checks at dispatch,
+delivery acceptance and reconciliation still need the voice integration milestone.
+Bound voice tools cannot select another incident. Preparation does not classify
+call answers, refresh claims or establish any observed evidence.
