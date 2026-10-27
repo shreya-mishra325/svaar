@@ -127,7 +127,7 @@ def _normalize(event_type: str, raw: bytes) -> tuple[_Workflow | None, dict | No
         raise GithubPayloadError("Invalid webhook payload") from None
 
 
-def _queue_opened_alerts(session: Session, incident: Incident) -> None:
+def queue_opened_alerts(session: Session, incident: Incident) -> None:
     """Queue chat alerts with the incident, atomically; never send or rerun anything."""
     queued = sum(
         enqueue_private_notification(
@@ -210,9 +210,11 @@ def ingest_delivery(
             )
             session.add(observed)
             session.flush()
-            grouped = group_observation(session, observed)
+            grouped = group_observation(
+                session, observed, owner_principal_id=mapping.owner_principal_id
+            )
             if grouped is not None and grouped.opened:
-                _queue_opened_alerts(session, grouped.incident)
+                queue_opened_alerts(session, grouped.incident)
         receipt.state, receipt.reason = "accepted", None
         receipt.org_id, receipt.event_id = mapping.org_id, observed.id
         session.add(receipt)

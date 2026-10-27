@@ -142,8 +142,8 @@ def test_model_failure_persists_fixed_reply_without_retry(session_factory, call_
     model = FakeModel(ModelUnavailableError("private"))
     runtime, loop = build(session_factory, model, FakeEngine())
     try:
-        assert runtime.run_turn(call_id, "hello", turn_index=0) == FALLBACK
-        assert runtime.run_turn(call_id, "hello", turn_index=0) == FALLBACK
+        assert runtime.run_turn(call_id, "show the timeline", turn_index=0) == FALLBACK
+        assert runtime.run_turn(call_id, "show the timeline", turn_index=0) == FALLBACK
         assert len(model.requests) == 1
     finally:
         loop.close()

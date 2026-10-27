@@ -132,6 +132,13 @@ class HttpChatModel:
         except (ValueError, TypeError, KeyError, IndexError):
             raise ModelUnavailableError("Invalid model response") from None
 
+    def classify(self, messages: Sequence[Mapping[str, Any]], *, timeout: float) -> str:
+        """Reuse one bounded chat request without tools or inference retries."""
+        reply = self.complete(messages, [], timeout=timeout)
+        if reply.tools:
+            raise ModelUnavailableError("Classifier tool proposals are refused")
+        return reply.content
+
     def close(self) -> None:
         """Close the pooled HTTP connections."""
         self._client.close()

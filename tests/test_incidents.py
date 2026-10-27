@@ -295,10 +295,11 @@ def outbox(sessions):
         return list(session.scalars(select(OutboxMessage).order_by(OutboxMessage.created_at)))
 
 
-def test_new_incident_alerts_eligible_roles_once(session_factory, org_id):
+def test_new_incident_alerts_explicit_owner_once(session_factory, org_id):
     with session_factory.begin() as session:
         org = session.get(Org, org_id)
         lead = chat_route(session, org, Role.LEAD, "lead")
+        session.get(RepoMapping, 101).owner_principal_id = lead
         chat_route(session, org, Role.DEV, "dev")  # devs are not alerted
         make_principal(session, org, Role.ADMIN)  # no chat route: skipped safely
     deliver(session_factory, run(run_id=1))
@@ -320,7 +321,8 @@ def test_alerts_stay_inside_the_incident_org(session_factory, org_id):
 
 def test_alert_queue_failure_rolls_back_the_observation(session_factory, org_id, monkeypatch):
     with session_factory.begin() as session:
-        chat_route(session, session.get(Org, org_id), Role.OPS, "ops")
+        owner = chat_route(session, session.get(Org, org_id), Role.OPS, "ops")
+        session.get(RepoMapping, 101).owner_principal_id = owner
 
     def broken(*args, **kwargs):
         raise RuntimeError("outbox unavailable")

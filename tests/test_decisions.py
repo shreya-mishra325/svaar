@@ -23,8 +23,8 @@ from svaar.decisions.types import Decision, DecisionSource, DecisionUnavailableE
 HIGH, LOW = 0.85, 0.55
 
 
-def jev(question: Question, value: str, confidence: float, **extra: object) -> Decision:
-    return Decision(question.name, value, confidence, model_version="jev-test", **extra)
+def model_decision(question: Question, value: str, confidence: float, **extra: object) -> Decision:
+    return Decision(question.name, value, confidence, model_version="classifier-test", **extra)
 
 
 def test_question_definitions_are_consistent() -> None:
@@ -45,7 +45,7 @@ def test_question_definitions_are_consistent() -> None:
     ],
 )
 def test_policy_boundaries(confidence: float, question: Question, expected: PolicyOutcome) -> None:
-    decision = jev(question, question.labels[0], confidence)
+    decision = model_decision(question, question.labels[0], confidence)
     assert evaluate(decision, question, high=HIGH, low=LOW) is expected
 
 
@@ -58,13 +58,16 @@ def test_fallback_always_defers() -> None:
 @pytest.mark.parametrize(
     "decision, valid",
     [
-        (jev(VOICE_INTENT, "investigate", 0.9, probabilities={"investigate": 0.9}), True),
-        (jev(VOICE_INTENT, "rerun_now", 0.9), False),
-        (jev(VOICE_INTENT, "other", 1.2), False),
-        (jev(VOICE_INTENT, "other", float("nan")), False),
-        (jev(VOICE_INTENT, "other", True), False),
-        (jev(VOICE_INTENT, "other", 0.9, probabilities={"bogus": 0.1}), False),
-        (jev(CLAIM_ANSWER, "confirmed", 0.9), False),
+        (
+            model_decision(VOICE_INTENT, "investigate", 0.9, probabilities={"investigate": 0.9}),
+            True,
+        ),
+        (model_decision(VOICE_INTENT, "rerun_now", 0.9), False),
+        (model_decision(VOICE_INTENT, "other", 1.2), False),
+        (model_decision(VOICE_INTENT, "other", float("nan")), False),
+        (model_decision(VOICE_INTENT, "other", True), False),
+        (model_decision(VOICE_INTENT, "other", 0.9, probabilities={"bogus": 0.1}), False),
+        (model_decision(CLAIM_ANSWER, "confirmed", 0.9), False),
     ],
 )
 def test_answer_validation(decision: Decision, valid: bool) -> None:
@@ -124,31 +127,37 @@ def run(session: Session, engine: FakeEngine | None, state: str = "what happened
 @pg
 def test_valid_answers_are_audited(db_session: Session) -> None:
     engine = FakeEngine(
-        [jev(VOICE_INTENT, "investigate", 0.9), jev(TRANSCRIPT_USABILITY, "usable", 0.7)]
+        [
+            model_decision(VOICE_INTENT, "investigate", 0.9),
+            model_decision(TRANSCRIPT_USABILITY, "usable", 0.7),
+        ]
     )
     results, rows = run(db_session, engine, "call +91 98765 43210 now")
     assert [r.outcome for r in results] == [PolicyOutcome.ACT, PolicyOutcome.ASK]
     assert "98765" not in engine.states[0]
-    assert rows["voice_intent"].source == "jev" and rows["voice_intent"].fallback_reason is None
-    assert rows["voice_intent"].model_version == "jev-test"
+    assert rows["voice_intent"].source == "model" and rows["voice_intent"].fallback_reason is None
+    assert rows["voice_intent"].model_version == "classifier-test"
     assert len(rows["voice_intent"].state_hash) == 64
 
 
 @pg
 def test_invalid_answer_falls_back_alone(db_session: Session) -> None:
     engine = FakeEngine(
-        [jev(VOICE_INTENT, "launch_missiles", 0.99), jev(TRANSCRIPT_USABILITY, "usable", 0.9)]
+        [
+            model_decision(VOICE_INTENT, "launch_missiles", 0.99),
+            model_decision(TRANSCRIPT_USABILITY, "usable", 0.9),
+        ]
     )
     results, rows = run(db_session, engine)
     assert rows["voice_intent"].fallback_reason == "invalid_answer"
     assert rows["voice_intent"].policy_outcome == "defer"
-    assert rows["transcript_usability"].source == "jev"
+    assert rows["transcript_usability"].source == "model"
     assert results[1].outcome is PolicyOutcome.ACT
 
 
 @pg
 def test_missing_and_duplicate_answers_fall_back(db_session: Session) -> None:
-    duplicate = jev(VOICE_INTENT, "investigate", 0.9)
+    duplicate = model_decision(VOICE_INTENT, "investigate", 0.9)
     _, rows = run(db_session, FakeEngine([duplicate, duplicate]))
     assert {row.fallback_reason for row in rows.values()} == {"missing_answer"}
 

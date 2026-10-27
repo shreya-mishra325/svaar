@@ -169,7 +169,7 @@ export default function Home() {
       </section>
 
       <footer className={styles.footer}>
-        <p>Jev decides, deterministic code enforces, Bolna speaks.</p>
+        <p>Models propose, deterministic code enforces, Bolna speaks.</p>
       </footer>
     </main>
   );

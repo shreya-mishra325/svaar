@@ -21,6 +21,7 @@ from svaar.agent.inference import InferencePool, TurnTimeoutError
 from svaar.agent.llm import ChatModel, ModelReply, ModelUnavailableError, RetryableModelError
 from svaar.agent.profiles import CHAT, VOICE, TurnProfile
 from svaar.agent.prompts import system_prompt
+from svaar.decisions.classifier import StructuredClassifier
 from svaar.decisions.policy import PolicyOutcome
 from svaar.decisions.questions import TRANSCRIPT_USABILITY, VOICE_INTENT, Question
 from svaar.decisions.service import DecisionService
@@ -51,9 +52,13 @@ class _BudgetedEngine:
 
     def decide(self, state: str, questions: Sequence[Question]) -> Sequence[Decision]:
         try:
-            return self.pool.call(
-                lambda: self.engine.decide(state, questions), deadline=self.deadline
-            )
+            engine = self.engine
+            if isinstance(engine, StructuredClassifier):
+                remaining = self.deadline - monotonic()
+                if remaining <= 0:
+                    raise TurnTimeoutError("Decision deadline reached")
+                engine = engine.with_timeout(remaining)
+            return self.pool.call(lambda: engine.decide(state, questions), deadline=self.deadline)
         except TurnTimeoutError:
             raise DecisionUnavailableError("Decision turn deadline reached") from None
 
@@ -139,6 +144,9 @@ class AgentLoop:
                 for proposal in reply.tools:
                     self._check_deadline(deadline)
                     arguments = proposal.arguments
+                    if proposal.name == "record_claim" and isinstance(arguments, dict):
+                        # The model may select a target, but cannot invent the caller's assertion.
+                        arguments = {**arguments, "statement": text}
                     if proposal.name in {"confirm_action", "verify_phone_code"}:
                         # A model's invented/transformed nonce is never confirmation.
                         arguments = {"code": text}
@@ -166,23 +174,33 @@ class AgentLoop:
     def _voice_gate(
         self, session: Session, context: ToolContext, state: str, deadline: float
     ) -> str | None:
-        """Ask usability before intent, individually; unverified batching is not assumed."""
+        """Run conservative heuristics first, then at most one grouped classifier request."""
+        heuristic = self.decisions.fallback.answer(state, TRANSCRIPT_USABILITY)
+        if heuristic.value != "usable":
+            DecisionService(None, high=self.decisions.high, low=self.decisions.low).decide(
+                session,
+                org_id=context.org_id,
+                state=state,
+                questions=[TRANSCRIPT_USABILITY],
+            )
+            return None
         engine = self.decisions.engine
         bounded = _BudgetedEngine(engine, self._inference, deadline) if engine is not None else None
         service = DecisionService(bounded, high=self.decisions.high, low=self.decisions.low)
-        for question in (TRANSCRIPT_USABILITY, VOICE_INTENT):
-            self._check_deadline(deadline)
-            decision = service.decide(
-                session, org_id=context.org_id, state=state, questions=[question]
-            )[0]
-            self._check_deadline(deadline)
-            if decision.outcome is not PolicyOutcome.ACT:
-                return None
-            if question is TRANSCRIPT_USABILITY and decision.decision.value != "usable":
-                return None
-            if question is VOICE_INTENT and decision.decision.value == "other":
-                return None
-        return decision.decision.value
+        self._check_deadline(deadline)
+        decisions = service.decide(
+            session,
+            org_id=context.org_id,
+            state=state,
+            questions=[TRANSCRIPT_USABILITY, VOICE_INTENT],
+        )
+        self._check_deadline(deadline)
+        usability, intent = decisions
+        if any(result.outcome is not PolicyOutcome.ACT for result in decisions):
+            return None
+        if usability.decision.value != "usable" or intent.decision.value == "other":
+            return None
+        return intent.decision.value
 
     def _complete(
         self,

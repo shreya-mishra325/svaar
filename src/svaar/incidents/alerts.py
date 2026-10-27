@@ -7,14 +7,10 @@ incident's own organization and writes a short, secret-free message.
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from svaar.identity.models import Principal, Role
+from svaar.identity.service import get_principal
 from svaar.incidents.models import Incident
-
-# No repository owner exists in the data model yet; these roles stand in for it.
-ALERT_ROLES = frozenset({Role.OPS, Role.LEAD, Role.ADMIN})
 
 
 @dataclass(frozen=True)
@@ -27,19 +23,16 @@ class Alert:
 
 
 def opened_alerts(session: Session, incident: Incident) -> list[Alert]:
-    """Return one alert per eligible principal in the incident's organization."""
-    principals = session.scalars(
-        select(Principal.id)
-        .where(
-            Principal.org_id == incident.org_id,
-            Principal.role.in_([role.value for role in ALERT_ROLES]),
-        )
-        .order_by(Principal.created_at, Principal.id)
-    )
-    body = opened_message(incident)
+    """Notify only the explicit incident owner, rechecking organization scope."""
+    owner = incident.owner_principal_id
+    if owner is None or get_principal(session, incident.org_id, owner) is None:
+        return []
     return [
-        Alert(principal_id=pid, key=f"incident-opened:{incident.id}:{pid}", body=body)
-        for pid in principals
+        Alert(
+            principal_id=owner,
+            key=f"incident-opened:{incident.id}:{owner}",
+            body=opened_message(incident),
+        )
     ]
 
 
@@ -50,5 +43,5 @@ def opened_message(incident: Incident) -> str:
     return (
         f"CI failure: {workflow}{branch} failed. "
         "Ask me for the timeline to see what happened, or tell me to acknowledge it "
-        "to take ownership."
+        "so escalation can stop."
     )

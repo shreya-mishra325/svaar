@@ -63,8 +63,9 @@ def test_production_disables_documentation(settings: Settings) -> None:
 
 
 @pytest.mark.parametrize("close_fails", [False, True])
+@pytest.mark.parametrize("classifier_enabled", [False, True])
 def test_configured_agent_lifecycle_does_not_call_provider(
-    settings: Settings, close_fails: bool
+    settings: Settings, close_fails: bool, classifier_enabled: bool
 ) -> None:
     configured = Settings(
         _env_file=None,
@@ -72,6 +73,7 @@ def test_configured_agent_lifecycle_does_not_call_provider(
         llm_base_url="https://example.invalid/v1",
         llm_api_key="example-only",
         llm_model="test-model",
+        classifier_enabled=classifier_enabled,
     )
     model = Mock()
     if close_fails:
@@ -81,6 +83,8 @@ def test_configured_agent_lifecycle_does_not_call_provider(
     def lifecycle() -> None:
         with TestClient(app):
             assert app.state.agent_loop is not None
+            assert (app.state.agent_loop.decisions.engine is not None) == classifier_enabled
+            model.classify.assert_not_called()
             assert app.state.voice_turn_runner.execute.agent is app.state.agent_loop
             assert app.state.chat_runtime.agent is app.state.agent_loop
             assert app.state.chat_runtime.prepare_phone_call is not None

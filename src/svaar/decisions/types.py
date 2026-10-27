@@ -1,4 +1,4 @@
-"""Provider-independent decision interface shared by Jev adapters and the fallback."""
+"""Provider-independent decision interface shared by structured classifiers and the fallback."""
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -11,7 +11,7 @@ from svaar.decisions.questions import Question
 class DecisionSource(StrEnum):
     """Where an answer came from."""
 
-    JEV = "jev"
+    MODEL = "model"
     FALLBACK = "fallback"
 
 
@@ -26,7 +26,7 @@ class Decision:
             a missing provider confidence is never invented.
         probabilities: Per-label probabilities when the provider returns them.
         model_version: Pinned model version, or ``heuristic`` for the fallback.
-        source: Whether Jev or the fallback produced the answer.
+        source: Whether a model or the fallback produced the answer.
     """
 
     name: str
@@ -34,7 +34,7 @@ class Decision:
     confidence: float
     probabilities: Mapping[str, float] = field(default_factory=dict)
     model_version: str = "heuristic"
-    source: DecisionSource = DecisionSource.JEV
+    source: DecisionSource = DecisionSource.MODEL
 
 
 class DecisionUnavailableError(Exception):
@@ -42,7 +42,7 @@ class DecisionUnavailableError(Exception):
 
 
 class DecisionEngine(Protocol):
-    """Interface implemented by Jev gateway adapters and the heuristic fallback."""
+    """Interface implemented by structured classifiers and the heuristic fallback."""
 
     def decide(self, state: str, questions: Sequence[Question]) -> Sequence[Decision]:
         """Answer typed questions about a redacted state.

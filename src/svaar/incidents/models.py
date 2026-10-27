@@ -84,6 +84,7 @@ class Incident(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id"), index=True)
     repository_id: Mapped[int] = mapped_column(BigInteger)
+    owner_principal_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("principals.id"))
     fingerprint: Mapped[str] = mapped_column(String(64))
     workflow_id: Mapped[int | None] = mapped_column(BigInteger)
     workflow_name: Mapped[str | None] = mapped_column(String(200))
@@ -148,3 +149,45 @@ class WorkflowLogSignature(Base):
     recorded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class Claim(Base):
+    """An authenticated principal's assertion; status is derived from evidence."""
+
+    __tablename__ = "claims"
+    __table_args__ = (
+        UniqueConstraint("org_id", "source_key", name="uq_claims_org_source"),
+        CheckConstraint(
+            "status IN ('confirmed', 'contradicted', 'unverified')", name="status_valid"
+        ),
+        CheckConstraint("kind IN ('workflow_succeeded', 'fix_merged')", name="kind_valid"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id"), index=True)
+    incident_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("incidents.id"), index=True)
+    author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("principals.id"))
+    source_key: Mapped[str] = mapped_column(String(64))
+    statement: Mapped[str] = mapped_column(String(4000))
+    kind: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(16), default="unverified")
+    run_id: Mapped[int | None] = mapped_column(BigInteger)
+    run_attempt: Mapped[int | None] = mapped_column(Integer)
+    head_sha: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ClaimEvidence(Base):
+    """Append-only link to an observed fact, with the deterministic rule used."""
+
+    __tablename__ = "evidence"
+    __table_args__ = (
+        UniqueConstraint("claim_id", "event_id", name="uq_evidence_claim_event"),
+        CheckConstraint("stance IN ('supports', 'contradicts')", name="stance_valid"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id"), index=True)
+    claim_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("claims.id"), index=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"))
+    stance: Mapped[str] = mapped_column(String(16))
+    rule: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

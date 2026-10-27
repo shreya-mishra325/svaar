@@ -1,6 +1,6 @@
 """Deterministic mission guard for voice calls.
 
-A call's mission fixes its tool allowlist. Neither the LLM nor Jev can expand it;
+A call's mission fixes its tool allowlist. No model can expand it;
 starting another mission is a separate server-side transition.
 """
 

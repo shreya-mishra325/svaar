@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr | None = None
     llm_model: str | None = None
 
+    classifier_enabled: bool = False
+
+    # Optional local escalation preparation only; never enables provider dialing.
+    escalation_jobs_enabled: bool = False
+    escalation_after_seconds: int = Field(default=600, ge=60, le=86400)
+    escalation_cooldown_seconds: int = Field(default=3600, ge=60, le=86400)
+    escalation_batch_size: int = Field(default=10, ge=1, le=50)
+
     channel_transport: Literal["caspian", "telegram"] | None = None
     gateway_poll_seconds: float = Field(default=2.0, ge=0.1, le=30.0)
     gateway_batch_size: int = Field(default=10, ge=1, le=100)
@@ -151,7 +159,7 @@ class Settings(BaseSettings):
     def validate_llm_configuration(self) -> Self:
         """A partial model configuration must fail before application startup."""
         configured = (self.llm_base_url, self.llm_api_key, self.llm_model)
-        if any(configured) and not all(configured):
+        if (any(configured) or self.classifier_enabled) and not all(configured):
             raise ValueError(
                 "Set SVAAR_LLM_BASE_URL, SVAAR_LLM_API_KEY and SVAAR_LLM_MODEL together"
             )

@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from sqlalchemy import select, text
@@ -35,7 +36,9 @@ class GatewayWorker:
         connection_id: str,
         poll_seconds: float = 2.0,
         batch_size: int = 10,
+        periodic_jobs: Callable[[], object] | None = None,
     ) -> None:
+        self.periodic_jobs = periodic_jobs
         self.sessions, self.runtime, self.transport = sessions, runtime, transport
         self.channel, self.connection_id = channel, connection_id
         self.poll_seconds, self.batch_size = poll_seconds, batch_size
@@ -135,6 +138,13 @@ class GatewayWorker:
         try:
             while not stop.is_set():
                 outcome = self.tick()
+                if self.periodic_jobs is not None:
+                    try:
+                        self.periodic_jobs()
+                    except Exception as exc:
+                        logger.error(
+                            "gateway_jobs_failed", extra={"error_type": type(exc).__name__}
+                        )
                 failures = min(failures + 1, 4) if outcome == "error" else 0
                 if stop.wait(min(self.poll_seconds * 2**failures, 30.0)):
                     break

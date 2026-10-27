@@ -7,11 +7,13 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -23,6 +25,12 @@ class VoiceCall(Base):
 
     __tablename__ = "voice_calls"
     __table_args__ = (
+        Index(
+            "uq_voice_calls_escalation_incident",
+            "incident_id",
+            unique=True,
+            postgresql_where=text("mission = 'escalation' AND incident_id IS NOT NULL"),
+        ),
         CheckConstraint(
             "(mission = 'phone_verify' AND phone_challenge_id IS NOT NULL "
             "AND phone_binding_id IS NULL) OR "
@@ -43,6 +51,7 @@ class VoiceCall(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id"))
     principal_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("principals.id"))
+    incident_id: Mapped[uuid.UUID | None] = mapped_column()
     phone_binding_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("channel_bindings.id"))
     phone_challenge_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("phone_challenges.id"), unique=True

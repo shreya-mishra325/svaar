@@ -4,6 +4,7 @@ import hashlib
 import re
 import secrets
 import uuid
+from collections.abc import Callable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -30,11 +31,18 @@ class CallService:
     It never creates an organization, principal or verified phone.
     """
 
-    def __init__(self, sessions: sessionmaker[Session], provider: VoiceProvider) -> None:
+    def __init__(
+        self,
+        sessions: sessionmaker[Session],
+        provider: VoiceProvider,
+        *,
+        escalation_authorized: Callable[[Session, uuid.UUID, uuid.UUID, uuid.UUID], bool]
+        | None = None,
+    ) -> None:
         self.sessions, self.provider = sessions, provider
+        self.escalation_authorized = escalation_authorized
 
-    @staticmethod
-    def _phone(session: Session, call: VoiceCall) -> str | None:
+    def _phone(self, session: Session, call: VoiceCall) -> str | None:
         if call.mission == Mission.PHONE_VERIFY.value:
             return pending_phone(
                 session,
@@ -42,6 +50,14 @@ class CallService:
                 principal_id=call.principal_id,
                 challenge_id=call.phone_challenge_id,
             )
+        if call.mission == Mission.ESCALATION.value and call.incident_id is not None:
+            if self.escalation_authorized is None or not self.escalation_authorized(
+                session,
+                call.org_id,
+                call.principal_id,
+                call.incident_id,
+            ):
+                return None
         binding = session.get(ChannelBinding, call.phone_binding_id)
         if (
             get_principal(session, call.org_id, call.principal_id) is None
@@ -189,3 +205,35 @@ def apply_provider_status(call: VoiceCall, status: str) -> bool:
         call.state = "active" if status == "in-progress" else "queued"
     call.provider_status = status
     return True
+
+
+def prepare_escalation_call(
+    session: Session,
+    org_id: uuid.UUID,
+    principal_id: uuid.UUID,
+    incident_id: uuid.UUID,
+) -> uuid.UUID | None:
+    """Prepare one local intent for exactly one verified phone; never dial here."""
+    if get_principal(session, org_id, principal_id) is None:
+        return None
+    phones = session.scalars(
+        select(ChannelBinding)
+        .where(
+            ChannelBinding.principal_id == principal_id,
+            ChannelBinding.channel == "phone",
+            ChannelBinding.verified_at.is_not(None),
+        )
+        .limit(2)
+    ).all()
+    if len(phones) != 1 or not re.fullmatch(r"\+[1-9][0-9]{7,14}", phones[0].address):
+        return None
+    call = VoiceCall(
+        org_id=org_id,
+        principal_id=principal_id,
+        incident_id=incident_id,
+        mission=Mission.ESCALATION.value,
+        phone_binding_id=phones[0].id,
+    )
+    session.add(call)
+    session.flush()
+    return call.id

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from svaar.api.auth import require_operator
 from svaar.api.errors import ErrorResponse
 from svaar.db import get_session
-from svaar.incidents import service
+from svaar.incidents import claims, service
 from svaar.incidents.models import Incident
 
 router = APIRouter(
@@ -26,6 +26,7 @@ class IncidentOut(BaseModel):
 
     id: uuid.UUID
     org_id: uuid.UUID
+    owner_principal_id: uuid.UUID | None
     repository_id: int
     state: str
     workflow_name: str | None
@@ -68,3 +69,16 @@ def incident_timeline(
         incident=IncidentOut.model_validate(incident, from_attributes=True),
         events=[TimelineEntryOut.model_validate(entry, from_attributes=True) for entry in entries],
     )
+
+
+@router.get("/incidents/{incident_id}/claims")
+def incident_claims(
+    incident_id: uuid.UUID,
+    session: Annotated[Session, Depends(get_session)],
+) -> dict[str, object]:
+    """Operator read-only view; no status refresh or provider request on GET."""
+    incident = session.get(Incident, incident_id)
+    if incident is None:
+        raise HTTPException(404)
+    rows = claims.list_claims(session, incident.org_id, incident.id)
+    return {"claims": [claims.claim_summary(session, row) for row in rows]}

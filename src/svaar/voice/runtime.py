@@ -165,6 +165,7 @@ class VoiceRuntime:
             mission,
             f"voice:{call.id}:{index}",
             phone_challenge_id=call.phone_challenge_id,
+            incident_id=call.incident_id,
         )
         history = [
             {"role": role, "content": content}
