@@ -1,4 +1,4 @@
-"""Deterministic heuristic fallback used when Jev is unavailable or invalid.
+"""Deterministic heuristic fallback used when a classifier is unconfigured, unavailable or invalid.
 
 Fallback answers carry confidence 0.0 and source ``fallback``, so the policy layer
 always defers them; they can never authorize or create evidence on their own.
@@ -41,6 +41,8 @@ def _label(state: str, question: Question) -> str:
     if question.name == TRANSCRIPT_USABILITY.name:
         if not any(ch.isalnum() for ch in text):
             return "unusable"
+        if re.fullmatch(r"(?:[0-9][ -]*){6}", text):
+            return "usable"
         return "repeat" if len(text.split()) < 2 else "usable"
     if question.name == VOICE_INTENT.name:
         for label, pattern in _INTENT_PATTERNS:

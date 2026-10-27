@@ -55,10 +55,16 @@ class FakeEngine:
         self.calls: list[str] = []
 
     def decide(self, state: str, questions: Sequence[Question]) -> list[Decision]:
-        question = questions[0]
-        self.calls.append(question.name)
-        value = self.usable if question.name == "transcript_usability" else self.intent
-        return [Decision(question.name, value, self.confidence, model_version="jev-test")]
+        self.calls.append(tuple(question.name for question in questions))
+        return [
+            Decision(
+                question.name,
+                self.usable if question.name == "transcript_usability" else self.intent,
+                self.confidence,
+                model_version="classifier-test",
+            )
+            for question in questions
+        ]
 
 
 def proposal(name="whoami", arguments=None, count=1) -> ModelReply:
@@ -160,8 +166,8 @@ def test_unusable_voice_never_reaches_model_or_tools(
     result = run(model, dispatcher, db_session, voice, engine=engine)
     assert result.reply == CLARIFY
     assert not model.requests
-    assert engine.calls == ["transcript_usability"]
-    assert db_session.scalar(select(func.count()).select_from(DecisionRecord)) == 1
+    assert engine.calls == [("transcript_usability", "voice_intent")]
+    assert db_session.scalar(select(func.count()).select_from(DecisionRecord)) == 2
     assert db_session.scalar(select(func.count()).select_from(ToolExecution)) == 0
 
 
