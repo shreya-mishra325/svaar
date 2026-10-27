@@ -26,7 +26,7 @@ from svaar.integrations.github import (
     ingest_delivery,
     queue_opened_alerts,
 )
-from svaar.integrations.models import RepoMapping
+from svaar.integrations.models import CiActionIntent, RepoMapping
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["github"])
@@ -159,6 +159,7 @@ async def github_webhook(request: Request) -> JSONResponse:
             delivery_id,
             event_type,
             raw,
+            defer_grouping=request.app.state.settings.github_enrichment_enabled,
         )
     except GithubJsonError:
         raise HTTPException(400) from None
@@ -172,3 +173,46 @@ async def github_webhook(request: Request) -> JSONResponse:
     if status == "ignored":
         return JSONResponse({"handled": False})
     return JSONResponse({"handled": True, "status": status})
+
+
+@router.get("/ci-actions/{intent_id}", dependencies=[Depends(require_operator)])
+def read_ci_action(
+    intent_id: uuid.UUID,
+    session: Annotated[Session, Depends(get_session)],
+) -> dict[str, object]:
+    """Inspect durable placement/receipt state; never reconcile by repeating a POST."""
+
+    intent = session.get(CiActionIntent, intent_id)
+    if intent is None:
+        raise HTTPException(404)
+    return {
+        "id": str(intent.id),
+        "org_id": str(intent.org_id),
+        "confirmation_id": str(intent.confirmation_id),
+        "action": intent.action,
+        "repository_id": intent.repository_id,
+        "installation_id": intent.installation_id,
+        "run_id": intent.run_id,
+        "run_attempt": intent.run_attempt,
+        "state": intent.state,
+        "http_status": intent.status_code,
+        "request_id": intent.request_id,
+        "error_code": intent.error_code,
+        "created_at": intent.created_at.isoformat(),
+    }
+
+
+@router.get(
+    "/ci-actions/by-confirmation/{confirmation_id}", dependencies=[Depends(require_operator)]
+)
+def read_ci_action_by_confirmation(
+    confirmation_id: uuid.UUID,
+    session: Annotated[Session, Depends(get_session)],
+) -> dict[str, object]:
+    """Locate a durable intent after an uncertain tool response hid the receipt."""
+    intent = session.scalar(
+        select(CiActionIntent).where(CiActionIntent.confirmation_id == confirmation_id)
+    )
+    if intent is None:
+        raise HTTPException(404)
+    return read_ci_action(intent.id, session)
