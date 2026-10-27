@@ -20,6 +20,7 @@ from svaar.api.health import router as health_router
 from svaar.api.router import api_router
 from svaar.config import Settings
 from svaar.db import create_database_engine
+from svaar.decisions.classifier import StructuredClassifier
 from svaar.decisions.service import DecisionService
 from svaar.logging import configure_logging
 from svaar.voice.calls import prepare_phone_verification_call
@@ -47,7 +48,16 @@ def create_app(settings: Settings | None = None, *, status_ingress: bool = False
             if settings.llm_model is not None and not status_ingress:
                 model = HttpChatModel.from_settings(settings)
                 dispatcher = Dispatcher(build_registry(), ApprovalPolicy.from_settings(settings))
-                loop = AgentLoop(model, dispatcher, DecisionService.from_settings(None, settings))
+                loop = AgentLoop(
+                    model,
+                    dispatcher,
+                    DecisionService.from_settings(
+                        StructuredClassifier(model.classify, model_version=settings.llm_model)
+                        if settings.classifier_enabled
+                        else None,
+                        settings,
+                    ),
+                )
             app.state.agent_loop = loop
             app.state.chat_runtime = (
                 ChatRuntime(

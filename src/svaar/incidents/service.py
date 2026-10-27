@@ -14,6 +14,7 @@ from datetime import datetime
 from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
+from svaar.identity.service import get_principal
 from svaar.incidents.models import (
     ACTIVE_STATES,
     Incident,
@@ -62,7 +63,12 @@ def fingerprint(org_id: uuid.UUID, repository_id: int, data: dict) -> str:
     return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()
 
 
-def group_observation(session: Session, event: ObservedEvent) -> GroupingResult | None:
+def group_observation(
+    session: Session,
+    event: ObservedEvent,
+    *,
+    owner_principal_id: uuid.UUID | None = None,
+) -> GroupingResult | None:
     """Attach a newly recorded workflow observation to an incident, opening one on failure.
 
     Runs inside the ingest transaction. A transaction-scoped advisory lock on the
@@ -95,6 +101,12 @@ def group_observation(session: Session, event: ObservedEvent) -> GroupingResult 
         incident = Incident(
             org_id=event.org_id,
             repository_id=event.repository_id,
+            owner_principal_id=(
+                owner_principal_id
+                if owner_principal_id is not None
+                and get_principal(session, event.org_id, owner_principal_id) is not None
+                else None
+            ),
             fingerprint=key,
             workflow_id=event.data.get("workflow_id"),
             workflow_name=event.data.get("workflow_name"),

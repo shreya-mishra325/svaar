@@ -241,7 +241,7 @@ def test_real_loop_ignores_invented_code_and_limits_tools(session_factory, chall
     )
     runtime, loop = build(session_factory, model, FakeEngine(intent="confirm_action"))
     try:
-        assert runtime.run_turn(str(identifier), "wrong", turn_index=0) == "Please retry."
+        assert runtime.run_turn(str(identifier), "wrong code", turn_index=0) == "Please retry."
         offered = model.requests[0]["tools"]
         assert [spec["function"]["name"] for spec in offered] == ["verify_phone_code"]
         with session_factory() as session:
@@ -333,11 +333,27 @@ def test_leading_zero_code_and_verification_history_are_preserved_safely(
     )
     runtime, loop = build(session_factory, model, FakeEngine(intent="confirm_action"))
     try:
-        runtime.run_turn(str(identifier), "wrong", turn_index=0)
+        runtime.run_turn(str(identifier), "wrong code", turn_index=0)
         runtime.run_turn(str(identifier), "000042", turn_index=1)
         # New verification turns contain only system policy plus current text.
         assert len(model.requests[2]["messages"]) == 2
         with session_factory() as session:
             assert resolve_principal(session, "phone", PHONE).id == data[1]
+    finally:
+        loop.close()
+
+
+def test_unclear_short_speech_never_consumes_phone_attempt(session_factory, challenge):
+    from svaar.agent.loop import CLARIFY
+
+    identifier = make_call(session_factory, challenge, active=True)
+    model = FakeModel()
+    runtime, loop = build(session_factory, model, FakeEngine(intent="confirm_action"))
+    try:
+        assert runtime.run_turn(str(identifier), "wrong", turn_index=0) == CLARIFY
+        assert not model.requests
+        with session_factory() as session:
+            assert session.get(PhoneChallenge, challenge[2].challenge_id).attempts == 0
+            assert resolve_principal(session, "phone", PHONE) is None
     finally:
         loop.close()

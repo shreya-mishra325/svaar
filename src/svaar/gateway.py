@@ -24,14 +24,17 @@ from svaar.agent.caspian import CaspianTelegramTransport
 from svaar.agent.llm import HttpChatModel
 from svaar.agent.loop import AgentLoop
 from svaar.agent.models import GatewayCursor
+from svaar.agent.notifications import delivered_incident_alert_at
 from svaar.agent.runtime import ChatRuntime
 from svaar.agent.transport import TransportUnavailableError
 from svaar.agent.worker import GatewayWorker, stream_key
 from svaar.config import Settings
 from svaar.db import create_database_engine
+from svaar.decisions.classifier import StructuredClassifier
 from svaar.decisions.service import DecisionService
+from svaar.jobs.escalation import EscalationWorker
 from svaar.logging import configure_logging
-from svaar.voice.calls import prepare_phone_verification_call
+from svaar.voice.calls import prepare_escalation_call, prepare_phone_verification_call
 
 logger = logging.getLogger(__name__)
 
@@ -55,11 +58,28 @@ def _run(settings: Settings) -> int:
         agent = AgentLoop(
             model,
             Dispatcher(build_registry(), ApprovalPolicy.from_settings(settings)),
-            DecisionService.from_settings(None, settings),
+            DecisionService.from_settings(
+                StructuredClassifier(model.classify, model_version=settings.llm_model)
+                if settings.classifier_enabled
+                else None,
+                settings,
+            ),
         )
         resources.callback(agent.close)
         transport.check_connection()
         runtime = ChatRuntime(sessions, agent, prepare_phone_call=prepare_phone_verification_call)
+        jobs = (
+            EscalationWorker(
+                sessions,
+                delivered_alert_at=delivered_incident_alert_at,
+                prepare_call=prepare_escalation_call,
+                after_seconds=settings.escalation_after_seconds,
+                cooldown_seconds=settings.escalation_cooldown_seconds,
+                batch_size=settings.escalation_batch_size,
+            )
+            if settings.escalation_jobs_enabled
+            else None
+        )
         worker = GatewayWorker(
             sessions,
             runtime,
@@ -68,6 +88,7 @@ def _run(settings: Settings) -> int:
             connection_id=settings.caspian_telegram_connection_id,
             poll_seconds=settings.gateway_poll_seconds,
             batch_size=settings.gateway_batch_size,
+            periodic_jobs=jobs.run_once if jobs is not None else None,
         )
         stop = threading.Event()
         previous = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}

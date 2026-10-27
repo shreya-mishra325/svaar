@@ -1,4 +1,1 @@
-"""Guarded polling for acknowledgement deadlines, outbox retries, and stale confirmations.
-
-The gateway owns this runtime. Scheduling and execution are not implemented yet.
-"""
+"""Guarded local escalation preparation; the gateway owns the opt-in runtime."""

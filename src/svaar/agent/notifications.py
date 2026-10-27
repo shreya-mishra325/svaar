@@ -1,6 +1,7 @@
 """Private follow-ups through the existing durable outbox, never direct provider sends."""
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -151,3 +152,24 @@ def enqueue_private_notification(
     )
     session.flush()
     return True
+
+
+def delivered_incident_alert_at(
+    session: Session,
+    org_id: uuid.UUID,
+    principal_id: uuid.UUID,
+    incident_id: uuid.UUID,
+) -> datetime | None:
+    """Return confirmed owner-alert delivery time only, never queued acceptance."""
+    return session.scalar(
+        select(OutboxMessage.sent_at)
+        .join(InboundRecord, InboundRecord.id == OutboxMessage.inbound_id)
+        .join(Conversation, Conversation.id == InboundRecord.conversation_id)
+        .where(
+            OutboxMessage.notification_key == f"incident-opened:{incident_id}:{principal_id}",
+            OutboxMessage.state == "sent",
+            OutboxMessage.sent_at.is_not(None),
+            Conversation.org_id == org_id,
+            Conversation.principal_id == principal_id,
+        )
+    )

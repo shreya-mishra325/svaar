@@ -20,6 +20,7 @@ class RepoMapping(Base):
     repository_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     installation_id: Mapped[int] = mapped_column(BigInteger)
     org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id"), index=True)
+    owner_principal_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("principals.id"))
 
 
 class WebhookDelivery(Base):
