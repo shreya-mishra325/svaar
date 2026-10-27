@@ -31,6 +31,7 @@ def start_negotiation(
     constraints: Constraints,
     proposal: Proposal,
     incident_id: uuid.UUID | None = None,
+    constraints_revision: int | None = None,
 ) -> tuple[Negotiation, Outcome]:
     """Negotiate and store every round; raises IncidentNotFoundError for a foreign incident."""
     if incident_id is not None:
@@ -40,6 +41,7 @@ def start_negotiation(
         org_id=org_id,
         incident_id=incident_id,
         constraints=constraints.model_dump(mode="json"),
+        constraints_revision=constraints_revision,
         initial_proposal=proposal.model_dump(mode="json"),
         accepted_proposal=outcome.accepted.model_dump(mode="json") if outcome.accepted else None,
         state="accepted" if outcome.accepted else "rejected",
