@@ -11,9 +11,13 @@ from svaar.incidents.tools import (
     LIST_INCIDENTS,
     RECORD_CLAIM,
 )
+from svaar.integrations.ci_action_tools import ExecuteAction, ci_action_tools
+from svaar.integrations.ci_tools import EXPLAIN_CI_FAILURE, LIST_CI_RUNS
+from svaar.replay.tools import REQUEST_REPLAY
+from svaar.resolution.tools import APPROVE_EXCEPTION, START_NEGOTIATION
 
 
-def build_registry() -> Registry:
+def build_registry(*, ci_actions: ExecuteAction | None = None) -> Registry:
     """Return a registry of all implemented business tools."""
     registry = Registry()
     registry.register(WHOAMI)
@@ -24,4 +28,12 @@ def build_registry() -> Registry:
     registry.register(RECORD_CLAIM)
     registry.register(CHECK_CLAIM)
     registry.register(LIST_CLAIMS)
+    registry.register(START_NEGOTIATION)
+    registry.register(APPROVE_EXCEPTION)
+    registry.register(REQUEST_REPLAY)
+    registry.register(LIST_CI_RUNS)
+    registry.register(EXPLAIN_CI_FAILURE)
+    if ci_actions is not None:
+        for spec in ci_action_tools(ci_actions):
+            registry.register(spec)
     return registry

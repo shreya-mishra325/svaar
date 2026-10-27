@@ -36,6 +36,7 @@ class ToolContext:
             their timeouts to its remaining budget. Never persist this clock value.
         phone_challenge_id: Server-bound pending challenge, only for phone_verify.
         incident_id: Server-bound incident for escalation voice tools.
+        confirmation_id: Dispatcher-bound confirmation for a tier-2 execution.
     """
 
     org_id: uuid.UUID
@@ -46,6 +47,7 @@ class ToolContext:
     deadline: float | None = None
     phone_challenge_id: uuid.UUID | None = None
     incident_id: uuid.UUID | None = None
+    confirmation_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)

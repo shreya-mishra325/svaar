@@ -964,3 +964,35 @@ guard exists. Live placement, readiness, final incident/recipient checks at disp
 delivery acceptance and reconciliation still need the voice integration milestone.
 Bound voice tools cannot select another incident. Preparation does not classify
 call answers, refresh claims or establish any observed evidence.
+
+### Non-voice implementation update, 2026-10-28
+
+Standing release/staffing/capacity constraints now have an operator-only,
+revision-checked store. The agent can negotiate against trusted rules, export
+tracked JSON drafts, request isolated replay of a proposed scenario, and request
+tier-2 draft approval. Policy changes require a new negotiation. Draft approval
+does not waive constraints or execute a deployment.
+
+Optional leased CI work composes the existing read-only App/log adapter with
+log-based incident grouping and atomic owner-outbox alerts. A separate process
+in the same application/image keeps slow log reads out of chat polling.
+list_ci_runs/explain_ci_failure expose scoped accepted observations and hash
+provenance, with root cause/category explicitly unknown.
+
+Confirmed rerun/cancel use a separate default-disabled writer. Its durable,
+attempt-level intent prevents duplicate effects across confirmations and retains
+accepted/rejected/uncertain outcomes. Ordinary log/read tokens stay read-only.
+No workflow dispatch tool or automatic workflow rerun is implemented.
+
+| Setting | Default |
+| --- | --- |
+| SVAAR_GITHUB_ENRICHMENT_ENABLED | false; enabled API defers grouping to CI jobs |
+| SVAAR_CI_BATCH_SIZE | 5; between 1 and 20 |
+| SVAAR_CI_POLL_SECONDS | 5; between 1 and 60 |
+| SVAAR_GITHUB_ACTIONS_ENABLED | false; explicit opt-in for confirmed rerun/cancel |
+
+Apply migrations through 0021 before using these features. Configuration alone
+does not establish live access. See [the non-voice rehearsal guide](docs/NONVOICE_REHEARSAL.md)
+for the offline test command, operator routes, opt-in setup and remaining work.
+This update supersedes earlier standalone-only log/policy notes; their dated test
+counts remain historical. PLAN.md/CEREBRO_CONTEXT.md and the private .env are unchanged.
