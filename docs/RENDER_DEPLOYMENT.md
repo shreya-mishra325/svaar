@@ -9,10 +9,9 @@ running fallback. Do not set up a Cloudflare tunnel for this Render deployment.
    by the user. Disable all external database access; keep only private access.
 2. One Free Docker web service created from render.yaml, also in Singapore.
 
-The Blueprint deliberately defines only the web service and references the
-existing database. It must not create a second DB, paid worker, disk, cron job,
-preview environment or paid plan. If the existing database has another name,
-change fromDatabase.name before syncing. Auto deploys are off.
+The Blueprint deliberately defines only the web service. Enter the existing
+database's Internal Database URL as the secret SVAAR_DATABASE_URL. It must not create a second DB, paid worker, disk, cron job,
+preview environment or paid plan. No exact database-name lookup is required. Auto deploys are off.
 
 Render reports 15-minute idle spin-down and approximately one-minute wakeup.
 Free Postgres expires 30 days after creation and is limited to 1 GB. Free services
@@ -76,11 +75,14 @@ file. Then on https://dashboard.render.com/:
    Grant repository access only as needed. Use render.yaml at the root.
 2. Confirm exactly one web service, Free, Singapore, referencing the existing
    Free DB. If anything is priced or a second DB is proposed, stop.
-3. Enter the three secrets from the ignored local .env.render:
+3. Enter SVAAR_DATABASE_URL from the existing Render database's Connections
+   section, using its Internal Database URL. Also enter these three secrets
+   from the ignored local .env.render:
    SVAAR_LLM_API_KEY, SVAAR_VOICE_TURN_TOKEN, SVAAR_VOICE_STATUS_SECRET.
    Values are generated/copied privately by python -m svaar.render_env; no values
    were printed. Paste just the value, not surrounding dotenv quotes.
-4. Confirm the database reference resolves to the internal connection string.
+4. Confirm SVAAR_DATABASE_URL contains the Internal Database URL, not an
+   external URL, database display name or development URL.
    Do not paste a development URL or database password into chat.
 5. Review and approve deployment. Wait for render_migrations_complete and /ready
    health success. Give the engineer the actual HTTPS URL shown by Render; never
@@ -143,3 +145,10 @@ Each exact real phone test still requires approval.
 - This is a platform simulation, not actual Render acceptance.
 - Private fallback preserved. No public URL, hosted-agent change, real message,
   real call or paid resource has been created by the agent.
+
+
+Blueprint correction, 2026-10-31: Render could not resolve the named database
+reference. SVAAR_DATABASE_URL now uses sync:false for private dashboard entry.
+No database is created/replaced. Credentials pasted into the conversation must
+be replaced before deployment; local Render voice tokens were regenerated without
+printing them. The Groq key must be revoked/replaced by the account holder.

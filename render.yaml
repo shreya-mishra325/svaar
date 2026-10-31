@@ -14,9 +14,7 @@ services:
     numInstances: 1
     envVars:
       - key: SVAAR_DATABASE_URL
-        fromDatabase:
-          name: svaar-demo-db
-          property: connectionString
+        sync: false
       - key: SVAAR_ENVIRONMENT
         value: production
       - key: SVAAR_DATABASE_TIMEOUT_SECONDS
