@@ -27,6 +27,10 @@ from svaar.incidents.models import (
 FAILURE_CONCLUSIONS = frozenset({"failure", "timed_out", "startup_failure"})
 
 
+class ActiveIncidentExistsError(Exception):
+    """An open or acknowledged incident already covers this workflow and branch."""
+
+
 class IncidentNotFoundError(Exception):
     """No incident with that ID exists in the caller's organization."""
 
@@ -127,6 +131,55 @@ def group_observation(
     session.add(IncidentEvent(incident_id=incident.id, event_id=event.id))
     session.flush()
     return GroupingResult(incident=incident, opened=opened)
+
+
+def open_manual_incident(
+    session: Session,
+    *,
+    org_id: uuid.UUID,
+    repository_id: int,
+    workflow_id: int | None,
+    workflow_name: str | None,
+    head_branch: str | None,
+    owner_principal_id: uuid.UUID | None,
+    now: datetime,
+) -> Incident:
+    """Open an operator-reported incident; caller validates scope and commits.
+
+    It uses the automatic grouping fingerprint, so later CI observations for the
+    same workflow and branch join it. No observed event is fabricated.
+    """
+    data = {"workflow_id": workflow_id, "head_branch": head_branch}
+    key = fingerprint(org_id, repository_id, data)
+    lock = int.from_bytes(
+        hashlib.sha256(f"incident:{key}".encode()).digest()[:8], "big", signed=True
+    )
+    session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock})
+    active = session.scalar(
+        select(Incident.id).where(
+            Incident.org_id == org_id,
+            Incident.fingerprint == key,
+            Incident.state.in_(ACTIVE_STATES),
+        )
+    )
+    if active is not None:
+        raise ActiveIncidentExistsError("An active incident already exists")
+    incident = Incident(
+        org_id=org_id,
+        repository_id=repository_id,
+        owner_principal_id=owner_principal_id,
+        fingerprint=key,
+        workflow_id=workflow_id,
+        workflow_name=workflow_name,
+        head_branch=head_branch,
+        state=IncidentState.OPEN.value,
+        failure_count=1,
+        opened_at=now,
+        last_failure_at=now,
+    )
+    session.add(incident)
+    session.flush()
+    return incident
 
 
 def get_incident(session: Session, org_id: uuid.UUID, incident_id: uuid.UUID) -> Incident:

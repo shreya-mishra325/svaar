@@ -1029,3 +1029,18 @@ create_call_service composes CallService with dispatch-time rechecks of the inci
 owner and claim author, an optional readiness probe and
 SVAAR_VOICE_DAILY_CALL_LIMIT (default 3) placements per person in any 24 hours.
 No route, job or model tool places calls yet.
+
+
+### Manual incidents
+
+POST /api/v1/incidents with the operator token opens an incident for a mapped
+repository:
+
+```json
+{"org_id": "<organization UUID>", "repository_id": 101, "workflow_id": 55,
+ "workflow_name": "Deploy", "head_branch": "main"}
+```
+
+owner_principal_id is optional and defaults to the repository mapping's owner. A later
+CI failure for the same workflow and branch joins this incident; a second active
+incident for them returns 409. The owner receives the usual private alert.

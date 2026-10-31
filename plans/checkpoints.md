@@ -32,7 +32,7 @@ explicit authorization covering the action and target.
 
 ## Current position
 
-Latest implementation verification: **752 of 752 tests passed on 2026-10-31**, plus
+Latest implementation verification: **758 of 758 tests passed on 2026-10-31**, plus
 Ruff lint/format and alembic check against the isolated PostgreSQL test database.
 The database container is healthy. Both local databases are at revision
 0026 with clean drift checks; the merge graph was verified (A-020) and the
@@ -44,7 +44,7 @@ latest test-only 0026 -> 0025 -> 0026 round trip passed. Compose validation pass
 | 1: Contracts and safety | Safety core done; provider composition partial | Core and adapter mocks passed | Provider checks incomplete |
 | 2: Shared runtime | Chat/gateway/internal voice core done; external voice binding pending | Core and persistence checks passed | Complete chat/voice flow pending |
 | 3: Voice transport | Call/challenge/follow-up core and status receipts done; turn bridge pending | Implemented scope passed | Real verification call pending |
-| 4: CI and timeline | Ingress, leased log grouping, CI read tools, ownership and owner outbox implemented; manual creation pending | Ingress checks passed | Real incident/alert/timeline pending |
+| 4: CI and timeline | Ingress, leased log grouping, CI read tools, ownership, owner outbox and manual creation implemented | Ingress checks passed | Real incident/alert/timeline pending |
 | 5: Claims and escalation | Claims, merge evidence, claim_check answers, detection, escalation advice and dispatch guards done; live dispatch and tuning pending | Passed | Pending |
 | 6: Resolution and confirmation | Standing constraints, agent negotiation and confirmed rerun/cancel implemented; dispatch pending | Implemented domain scope passed | Pending |
 | 7: Replay | Agent replay bound to accepted plan; tracked draft export/approval implemented | Isolation and approval tests passed | Required simulation demonstration pending |
@@ -283,7 +283,8 @@ Target: Oct 24 to 25. Prerequisites: scoped identity, chat delivery and incident
 - [x] Explicit same-org repository owner and per-incident owner snapshot (A-018).
 - [x] Idempotent private alerts to that owner only; no missing-owner broadcast fallback.
 - [ ] Configure a real owner and verify actual alert delivery.
-- [ ] Implement the planned operator POST /incidents manual-creation route.
+- [x] Operator POST /incidents manual-creation route: mapped repository, same-org owner,
+  automatic-grouping fingerprint, 409 on an active duplicate, owner alert queued.
 - [x] Signed observation -> guarded CI job -> incident -> owner outbox preparation,
   without automatic workflow reruns; real provider/delivery acceptance remains below.
 - [x] list_ci_runs/explain_ci_failure read scoped accepted observations and available
@@ -1308,3 +1309,15 @@ A requirements review against PLAN.md sections 10 and 17 found three gaps, now c
 Verification: 752 of 752 tests passed; Ruff format/lint passed; test-only round
 trip 0026 -> 0025 -> 0026 and alembic check on both databases passed. No live provider
 requests, calls or messages were made.
+
+
+## 2026-10-31: operator manual incident creation (Phase 4)
+
+POST /api/v1/incidents (operator token) opens an incident for a repository explicitly
+mapped to the organization. The owner defaults to the mapping's owner and must belong
+to the organization; no role or name is guessed. The incident uses the automatic
+grouping fingerprint (organization, repository, workflow, branch), so a later CI
+failure joins it, and an active duplicate returns 409 under the same advisory lock.
+No observed event is fabricated; the timeline stays empty until CI facts arrive. The
+owner alert is queued atomically through the existing outbox; missing routes queue
+nothing. Verification: 758 of 758 tests passed; Ruff passed. No schema change.
