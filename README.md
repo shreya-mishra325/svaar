@@ -1066,3 +1066,6 @@ uv run --locked python -m svaar.dispatch --place CALL_ID --org ORG_ID
 SVAAR_VOICE_DAILY_CALL_LIMIT. Use it only with explicit authorization for that call.
 Whether Bolna delivers the prompt reference and stable history is unverified until the
 first real call (plans/anomaly.md A-028).
+
+
+Additional Caspian channels: see [channel setup and acceptance status](docs/CASPIAN_CHANNELS.md).
