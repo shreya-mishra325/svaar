@@ -1002,3 +1002,58 @@ first (10 second connects); the local .env now uses 127.0.0.1. Consider changing
 - Svaar replies only after the full turn (up to the 8 second voice deadline); a role
   chunk is sent first. Token-level streaming is not implemented.
 - Owner: Unassigned.
+
+## A-029: public demo ingress and account prerequisites
+
+Observed 2026-10-31. Local private deployment works, but live demo acceptance is
+blocked by external setup/authorization. The saved source environment lacks the
+voice-turn mode/token and GitHub App/key/HMAC credentials. Demo preparation
+generated fresh independent voice/operator/database secrets and selected the
+existing custom-LLM route without altering the old .env or hosted agent.
+
+Cloudflare's current Quick Tunnel documentation explicitly excludes SSE, while
+Bolna custom LLMs require streamed OpenAI deltas. The previous trycloudflare URL
+is therefore unsuitable for the required voice demo:
+https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/#limitations
+https://www.bolna.ai/docs/custom-llm-inference
+
+Prepared a named tunnel sidecar sharing the restricted ingress namespace, using
+a pinned official image (cloudflared 2026.10.7). Existing status loopback/edge-IP
+trust is retained, not generalized to arbitrary reverse proxies. No public
+tunnel, DNS route or external configuration has been created. User must supply
+an existing account/domain/connector token locally and approve publication.
+Do not purchase a domain/plan to bypass this boundary.
+
+Gateway startup can send replies and thus remains withheld pending approval.
+GitHub controlled-repository configuration/run, hosted Bolna configuration and
+each exact phone call require their respective later approvals. No calls/messages
+were sent. Groq/Caspian/Bolna read-only probes passed; local synthetic SSE is not
+provider acceptance. Tests: 784 passed; Docker build/health/restart/persistence
+and demo schema 0026 passed. Live named-tunnel SSE, actual call reference/history,
+provider callback IP behavior and end-to-end domain flows remain open.
+
+## A-030: Render Free deployment target and live control boundary
+
+2026-10-31 user decision supersedes A-029's named-tunnel next action. Preserve the
+private stack. Render's Free web service sleeps after 15 minutes and Free Postgres
+expires after 30 days; no paid fallback/worker is authorized. The user reports a
+Free database in Singapore. The prepared Blueprint defines one Free web service
+referencing it, with no new paid resource.
+
+Render-only ingress relies on the platform's documented overwrite of
+CF-Connecting-IP and retains the original status secret/allowlist. The generic
+app never gains blanket proxy trust. Real edge spoof rejection remains a required
+public test, not established by local tests. Source:
+https://render.com/articles/host-pocketbase-on-render
+
+70 focused checks and a local Render-style Docker/migration smoke passed. GitHub
+publication and Render web-service deployment/credentials/approval still need
+the user; no URL has been invented or live delivery claimed.
+
+Free has no shell access. A real call requires valid identity/mission context
+and a prepared call in the same Render database. Secure private provisioning/
+dispatch access must be agreed before dialing. Do not expose operator routes,
+open PostgreSQL universally, migrate verified identity by guessing, or pass a
+laptop-only reference to a fresh Render database. Caspian is deferred rather than
+starting an unreliable polling loop or paid worker. No paid resources, hosted
+provider mutations, messages or calls were performed.

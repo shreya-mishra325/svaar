@@ -1,0 +1,153 @@
+name: svaar-demo
+
+x-base: &base
+  image: svaar:demo
+  build: .
+  init: true
+  restart: unless-stopped
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: 45s
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-db-env: &db-env
+  SVAAR_ENVIRONMENT: production
+  SVAAR_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?prepare demo env}:${POSTGRES_PASSWORD:?prepare demo env}@db:5432/${POSTGRES_DB:?prepare demo env}
+  SVAAR_DATABASE_TIMEOUT_SECONDS: "5"
+  SVAAR_LOG_LEVEL: INFO
+
+x-model: &model
+  <<: *db-env
+  SVAAR_LLM_BASE_URL: ${SVAAR_LLM_BASE_URL:-}
+  SVAAR_LLM_API_KEY: ${SVAAR_LLM_API_KEY:-}
+  SVAAR_LLM_MODEL: ${SVAAR_LLM_MODEL:-}
+  SVAAR_CLASSIFIER_ENABLED: ${SVAAR_CLASSIFIER_ENABLED:-false}
+  SVAAR_GITHUB_ACTIONS_ENABLED: ${SVAAR_GITHUB_ACTIONS_ENABLED:-false}
+  SVAAR_GITHUB_APP_ID: ${SVAAR_GITHUB_APP_ID:-}
+  SVAAR_GITHUB_PRIVATE_KEY_B64: ${SVAAR_GITHUB_PRIVATE_KEY_B64:-}
+
+services:
+  db:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?prepare demo env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?prepare demo env}
+      POSTGRES_DB: ${POSTGRES_DB:?prepare demo env}
+    volumes: [demo_postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    # No published database port.
+
+  migrate:
+    <<: *base
+    restart: "no"
+    environment: *db-env
+    command: [alembic, upgrade, head]
+    healthcheck: {disable: true}
+    depends_on:
+      db: {condition: service_healthy}
+
+  app:
+    <<: *base
+    environment:
+      <<: *model
+      SVAAR_OPERATOR_TOKEN: ${SVAAR_OPERATOR_TOKEN:?prepare demo env}
+      SVAAR_BOLNA_API_KEY: ${SVAAR_BOLNA_API_KEY:-}
+      SVAAR_BOLNA_AGENT_ID: ${SVAAR_BOLNA_AGENT_ID:-}
+    ports: ["127.0.0.1:18000:8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  ingress:
+    <<: *base
+    environment:
+      <<: *model
+      SVAAR_VOICE_TURN_MODE: ${SVAAR_VOICE_TURN_MODE:-llm_endpoint}
+      SVAAR_VOICE_TURN_TOKEN: ${SVAAR_VOICE_TURN_TOKEN:?prepare demo env}
+      SVAAR_VOICE_STATUS_SECRET: ${SVAAR_VOICE_STATUS_SECRET:?prepare demo env}
+      SVAAR_GITHUB_WEBHOOK_SECRET: ${SVAAR_GITHUB_WEBHOOK_SECRET:-}
+      SVAAR_GITHUB_ENRICHMENT_ENABLED: ${SVAAR_GITHUB_ENRICHMENT_ENABLED:-false}
+    command: [uvicorn, "svaar.ingress:create_demo_ingress", --factory, --host, "127.0.0.1", --port, "8001", --no-access-log, --no-proxy-headers]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/ready', timeout=4).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    # No published origin port. Tunnel shares this network namespace.
+
+  gateway:
+    <<: *base
+    profiles: [chat]
+    environment:
+      <<: *model
+      SVAAR_CHANNEL_TRANSPORT: caspian
+      SVAAR_CASPIAN_BASE_URL: ${SVAAR_CASPIAN_BASE_URL:-}
+      SVAAR_CASPIAN_API_KEY: ${SVAAR_CASPIAN_API_KEY:-}
+      SVAAR_CASPIAN_TELEGRAM_CONNECTION_ID: ${SVAAR_CASPIAN_TELEGRAM_CONNECTION_ID:-}
+      SVAAR_CASPIAN_TELEGRAM_ADDRESS: ${SVAAR_CASPIAN_TELEGRAM_ADDRESS:-}
+      SVAAR_ESCALATION_JOBS_ENABLED: ${SVAAR_ESCALATION_JOBS_ENABLED:-false}
+      SVAAR_CLAIM_CHECK_JOBS_ENABLED: ${SVAAR_CLAIM_CHECK_JOBS_ENABLED:-false}
+    entrypoint: [python, -m, svaar.gateway]
+    command: []
+    healthcheck:
+      test: [CMD, python, -m, svaar.gateway, --status]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  ci-worker:
+    <<: *base
+    profiles: [ci]
+    environment:
+      <<: *db-env
+      SVAAR_GITHUB_ENRICHMENT_ENABLED: ${SVAAR_GITHUB_ENRICHMENT_ENABLED:-false}
+      SVAAR_GITHUB_APP_ID: ${SVAAR_GITHUB_APP_ID:-}
+      SVAAR_GITHUB_PRIVATE_KEY_B64: ${SVAAR_GITHUB_PRIVATE_KEY_B64:-}
+      SVAAR_CI_BATCH_SIZE: ${SVAAR_CI_BATCH_SIZE:-5}
+      SVAAR_CI_POLL_SECONDS: ${SVAAR_CI_POLL_SECONDS:-5}
+    entrypoint: [python, -m, svaar.jobs]
+    command: []
+    healthcheck:
+      test: [CMD, python, -m, svaar.jobs, --status]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  tunnel:
+    image: cloudflare/cloudflared@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
+    restart: unless-stopped
+    profiles: [public]
+    network_mode: service:ingress
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    command: [tunnel, --no-autoupdate, run]
+    depends_on:
+      ingress: {condition: service_healthy}
+    # Named tunnel only; Quick Tunnels do not support Bolna's SSE transport.
+
+volumes:
+  demo_postgres:

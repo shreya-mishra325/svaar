@@ -1,0 +1,25 @@
+name: Svaar controlled demo
+on:
+  workflow_dispatch:
+    inputs:
+      fail:
+        description: Deliberately fail this toy CI run
+        required: true
+        type: boolean
+        default: true
+permissions:
+  contents: read
+jobs:
+  controlled:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Controlled result (no deploy)
+        env:
+          EXPECTED_FAILURE: ${{ inputs.fail }}
+        run: |
+          echo "Svaar controlled CI demonstration"
+          if [ "$EXPECTED_FAILURE" = "true" ]; then
+            echo "Intentional demo failure"
+            exit 1
+          fi
+          echo "Controlled success; this does not deploy anything"

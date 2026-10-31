@@ -1,0 +1,47 @@
+# Free web service only. Reuse the manually created Free Postgres in Singapore.
+# No paid workers, disks, cron jobs, replicas or pre-deploy jobs.
+services:
+  - type: web
+    name: svaar-demo
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: python -m svaar.render_start
+    healthCheckPath: /ready
+    autoDeployTrigger: "off"
+    numInstances: 1
+    envVars:
+      - key: SVAAR_DATABASE_URL
+        fromDatabase:
+          name: svaar-demo-db
+          property: connectionString
+      - key: SVAAR_ENVIRONMENT
+        value: production
+      - key: SVAAR_DATABASE_TIMEOUT_SECONDS
+        value: "10"
+      - key: SVAAR_LOG_LEVEL
+        value: INFO
+      - key: SVAAR_LLM_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: SVAAR_LLM_MODEL
+        value: openai/gpt-oss-20b
+      - key: SVAAR_LLM_API_KEY
+        sync: false
+      - key: SVAAR_VOICE_TURN_TOKEN
+        sync: false
+      - key: SVAAR_VOICE_STATUS_SECRET
+        sync: false
+      - key: SVAAR_VOICE_TURN_MODE
+        value: llm_endpoint
+      - key: SVAAR_CLASSIFIER_ENABLED
+        value: "true"
+      - key: SVAAR_GITHUB_ACTIONS_ENABLED
+        value: "false"
+      - key: SVAAR_GITHUB_ENRICHMENT_ENABLED
+        value: "false"
+      - key: SVAAR_ESCALATION_JOBS_ENABLED
+        value: "false"
+      - key: SVAAR_CLAIM_CHECK_JOBS_ENABLED
+        value: "false"
