@@ -83,4 +83,19 @@ CLAIM_ANSWER = Question(
     reversible=False,
 )
 
+CLAIM_DETECTION = Question(
+    name="claim_detection",
+    labels=("claim", "no_claim"),
+    criteria={
+        "claim": (
+            "States that specific engineering work is done or in a given state, "
+            "such as a fix merged, a build passing or a deploy finished"
+        ),
+        "no_claim": "A question, request, plan, opinion or anything else without such a status",
+    },
+    fallback="no_claim",
+    reversible=True,
+)
+
 P0_QUESTIONS = (VOICE_INTENT, TRANSCRIPT_USABILITY, CLAIM_ANSWER)
+P1_QUESTIONS = (CLAIM_DETECTION,)

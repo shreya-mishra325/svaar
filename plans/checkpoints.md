@@ -1,6 +1,6 @@
 # Svaar phase checkpoints
 
-Last reviewed: 2026-10-28 (Asia/Calcutta).
+Last reviewed: 2026-10-31 (Asia/Calcutta).
 
 ## How to use this checklist
 
@@ -32,11 +32,12 @@ explicit authorization covering the action and target.
 
 ## Current position
 
-Latest implementation verification: **687 tests passed on 2026-10-28**, plus
+Latest implementation verification: **725 of 728 tests passed on 2026-10-31** (the
+three Windows-only cases are A-026), plus
 Ruff lint/format and alembic check against the isolated PostgreSQL test database.
 The database container is healthy. Both local databases are at revision
-0021 with clean drift checks; the merge graph was verified (A-020) and the
-latest test-only 0021 -> 0018 -> 0021 round trip passed. Compose validation passed. The existing Starlette warning is A-004.
+0023 with clean drift checks; the merge graph was verified (A-020) and the
+latest test-only 0023 -> 0022 -> 0023 round trip passed. Compose validation passed. The existing Starlette warning is A-004.
 
 | Phase | Implementation | Offline verification | Live acceptance |
 | --- | --- | --- | --- |
@@ -45,7 +46,7 @@ latest test-only 0021 -> 0018 -> 0021 round trip passed. Compose validation pass
 | 2: Shared runtime | Chat/gateway/internal voice core done; external voice binding pending | Core and persistence checks passed | Complete chat/voice flow pending |
 | 3: Voice transport | Call/challenge/follow-up core and status receipts done; turn bridge pending | Implemented scope passed | Real verification call pending |
 | 4: CI and timeline | Ingress, leased log grouping, CI read tools, ownership and owner outbox implemented; manual creation pending | Ingress checks passed | Real incident/alert/timeline pending |
-| 5: Claims and escalation | Claim/workflow-evidence core and guarded intent jobs done; detection and live calls pending | Implemented core passed | Pending |
+| 5: Claims and escalation | Claims, merge evidence, claim_check answers, detection and guarded intents done; CI category/escalation advice and dispatch limits in progress | Implemented scope passed | Pending |
 | 6: Resolution and confirmation | Standing constraints, agent negotiation and confirmed rerun/cancel implemented; dispatch pending | Implemented domain scope passed | Pending |
 | 7: Replay | Agent replay bound to accepted plan; tracked draft export/approval implemented | Isolation and approval tests passed | Required simulation demonstration pending |
 | 8: Rehearsal | Non-voice fixture and guide implemented | Mocked non-voice slice passed; full rehearsal pending | Calls, timing and recording pending |
@@ -322,32 +323,41 @@ Target: Oct 26 to 27. Prerequisites: events, outbox and verified voice calls.
 
 - [ ] Phase complete.
 
-Claims and deterministic workflow evidence now have a tested initial core.
-Guarded local escalation preparation is implemented. Call verification and live
-automatic dialing remain pending (A-024).
+Claims, workflow and merge evidence, claim_check call answers and claim detection are
+implemented and verified offline. Guarded local escalation preparation is implemented.
+Live dialing and every live acceptance item remain pending (A-024, A-025).
 
 ### Implementation
 
 - [x] Scoped authored claims, source dedupe and deterministic exact workflow-success
   evidence lookup with append-only provenance.
 - [x] Dispatcher-owned recording/checking/listing and operator read-only claims route.
-- [ ] Dedicated automatic claim detection and merge-event evidence ingestion (A-023).
+- [x] Signed merged pull_request observations and exact fix_merged evidence: the claim's
+  pull request, the incident's repository and a merge no earlier than the incident (A-025).
+- [x] Optional audited claim-detection slot; a detection only suggests record_claim and
+  never records a claim or sets status (A-025).
 - [x] Incident acknowledgement action is registered through the dispatcher.
-- [ ] Implement claim_check/escalation handlers and guarded scheduling.
-- [ ] Classify usable final answers and derive status from persisted evidence.
-- [ ] Preserve unverified for missing evidence, unusable speech and failed calls.
+- [x] claim_check handlers: verify_claim prepares one bound pending intent for the claim
+  author (tier 2 when the author is not the incident owner); record_claim_answer is
+  offered only inside that call and stores the caller's exact words (A-025).
+- [x] Completed-call answers are classified once by the claim-answer slot; only a
+  confident model confirmed/denied becomes evidence, and status is derived from it.
+- [x] Missing evidence, unusable speech, fallback/low-confidence answers and failed or
+  unanswered calls stay unverified; answer text is purged once finalized.
 - [x] Guarded preparation jobs, row claiming, durable incident-bound intents,
   confirmed-delivery grace and per-recipient preparation cooldown (A-024).
 - [ ] Live dispatch readiness, final recipient/incident checks and actual call limits.
 - [ ] Independently validated CI category/adaptive escalation decisions and labelled audit.
-- [ ] Use batching only if the actual gateway contract verifies support.
+- [ ] Use batching only if the actual gateway contract verifies support. Not applicable
+  since the 2026-10-27 plan change removed that gateway (A-022); left unticked.
 
 ### Offline verification
 
 - [x] Initial workflow claim confirmation, absent/failed evidence, merge ambiguity,
   statement/target mismatches, dedupe, org isolation and immutable evidence tests pass.
-- [ ] Call-derived evidence transitions and automatic detection tests.
-- [ ] Wrong-person, unusable-answer and failed/unanswered-call cases remain unverified.
+- [x] Call-derived evidence transitions, merge evidence and automatic detection tests.
+- [x] Wrong-person, unsure, callback, fallback and failed/unanswered-call cases remain
+  unverified; failed calls discard answers without evidence.
 - [x] Concurrent preparation produces one intent; one failed job rolls back without
   stopping another recipient's job.
 - [ ] Timing, recipient authorization, call limits and per-question decision audit pass.
@@ -1197,3 +1207,35 @@ detection, merge evidence, CI category/adaptive escalation and labelled evaluati
 manual incident creation, workflow dispatch and final rehearsal remain pending.
 Voice routes/runtime and the teammate's hosted Bolna wiring are untouched.
 No private .env edit, live messages/calls/provider mutations or Git mutations occurred.
+
+
+## 2026-10-31: claim_check calls, merge evidence and claim detection
+
+Branch feat/phase5-claims-escalation, based on feat/caspian-chat-runtime (Oct 28).
+Owner: not assigned in this document. Windows 11 development machine.
+
+- Migration 0022 binds claim_check calls to one claim (at most one open check per
+  claim), adds claim_answers and lets evidence cite an answer instead of an event.
+  Migration 0023 adds an optional pull_number target to fix_merged claims.
+- verify_claim (lead/admin, chat) rechecks evidence and prepares a pending intent for
+  the claim author with exactly one verified phone; nothing is dialed. CallService
+  refuses claim_check intents unless a composed guard confirms the claim is still
+  unverified and the recipient is its author.
+- record_claim_answer is offered only in a bound claim_check call; AgentLoop replaces
+  model arguments with the caller's exact words. The call prompt quotes the claim as data.
+- ClaimAnswerWorker (gateway, SVAAR_CLAIM_CHECK_JOBS_ENABLED, default false) waits for
+  the call receipt. Completed calls get one audited claim_answer decision; only a
+  model answer at or above the high threshold maps confirmed/denied to
+  supports/contradicts. Failed/unanswered calls discard answers. Text is purged.
+- pull_request webhooks closed with merged=true become append-only observations that
+  never open incidents. merge-event-v1 supports a narrow positive merge statement only
+  for the claim's pull request, in the incident's repository, merged at or after the
+  incident opened.
+- claim_detection runs only when the classifier is enabled and a status word appears;
+  a confident detection adds a prompt hint to use record_claim.
+
+Verification: 725 passed, 1 failed, 4 errors (728 tests); the failures are the
+Windows-only cases in A-026, which do not occur on Linux CI/macOS. Ruff format/lint
+passed. Test-only round trips 0022 -> 0021 -> 0022 and 0023 -> 0022 -> 0023 and
+alembic check on both databases passed. No live provider requests, calls, messages
+or classifier requests were made; all model, classifier and voice providers are fakes.

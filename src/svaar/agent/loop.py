@@ -24,7 +24,12 @@ from svaar.agent.profiles import CHAT, VOICE, TurnProfile
 from svaar.agent.prompts import system_prompt
 from svaar.decisions.classifier import StructuredClassifier
 from svaar.decisions.policy import PolicyOutcome
-from svaar.decisions.questions import TRANSCRIPT_USABILITY, VOICE_INTENT, Question
+from svaar.decisions.questions import (
+    CLAIM_DETECTION,
+    TRANSCRIPT_USABILITY,
+    VOICE_INTENT,
+    Question,
+)
 from svaar.decisions.service import DecisionService
 from svaar.decisions.types import Decision, DecisionEngine, DecisionUnavailableError
 from svaar.identity.service import get_principal
@@ -35,6 +40,16 @@ VOICE_FALLBACK = "I can't check that right now, I will message you."
 CHAT_FALLBACK = "I couldn't finish that request. Please try again or ask an operator."
 CLARIFY = "Could you repeat or clarify that request?"
 HISTORY_LIMIT = 12
+# Cheap local prefilter: only messages naming a work status reach the classifier.
+STATUS_WORDS = re.compile(
+    r"\b(merged|fixed|passed|green|deployed|shipped|done|succeeded|resolved)\b",
+    re.IGNORECASE,
+)
+CLAIM_HINT = (
+    "The caller's message may state verifiable work status. If it concerns an incident, "
+    "record it with record_claim, using the exact run and attempt or the pull request "
+    "number when known. Recording is not proof and does not set its status."
+)
 
 
 @dataclass(frozen=True)
@@ -122,6 +137,12 @@ class AgentLoop:
                     return TurnResult(CLARIFY, "clarification_required")
             specs = self.dispatcher.available_tools(session, context)
             brief = None
+            if (
+                not spoken
+                and any(spec.name == "record_claim" for spec in specs)
+                and self._claim_detected(session, context, principal.display_name, text, deadline)
+            ):
+                brief = CLAIM_HINT
             if context.mission is Mission.CLAIM_CHECK and context.claim_id is not None:
                 brief = claim_check_brief(
                     session, context.org_id, context.principal_id, context.claim_id
@@ -214,6 +235,32 @@ class AgentLoop:
         if usability.decision.value != "usable" or intent.decision.value == "other":
             return None
         return intent.decision.value
+
+    def _claim_detected(
+        self,
+        session: Session,
+        context: ToolContext,
+        name: str | None,
+        text: str,
+        deadline: float,
+    ) -> bool:
+        """Ask the optional classifier once; a detection only suggests record_claim."""
+        engine = self.decisions.engine
+        if engine is None or STATUS_WORDS.search(text) is None:
+            return False
+        state = text.replace(name, "[person]") if name else text
+        service = DecisionService(
+            _BudgetedEngine(engine, self._inference, deadline),
+            high=self.decisions.high,
+            low=self.decisions.low,
+        )
+        [result] = service.decide(
+            session, org_id=context.org_id, state=state, questions=[CLAIM_DETECTION]
+        )
+        detected = result.outcome is PolicyOutcome.ACT and result.decision.value == "claim"
+        if result.record is not None:
+            result.record.action_taken = "suggested_record_claim" if detected else None
+        return detected
 
     def _complete(
         self,

@@ -1,6 +1,6 @@
 # Svaar anomalies and open integration questions
 
-Last reviewed: 2026-10-24 (Asia/Calcutta).
+Last reviewed: 2026-10-31 (Asia/Calcutta).
 
 ## How to use this log
 
@@ -827,6 +827,7 @@ was performed.
 - Still missing: dedicated automatic claim-detection slot/runtime, merge-event
   ingress, claim_check call context/record_claim_answer, completed-call
   classification, verification tier policy and guarded escalation.
+  Superseded 2026-10-31: these are implemented and verified offline; see A-025.
   check_claim is explicit; no scheduler refreshes claims yet.
 - Evidence: 626 tests passed; lint/format, 0017 test round trip and local/test
   schema checks passed. No live calls, messages or provider requests occurred.
@@ -909,3 +910,39 @@ atomic alert rollback, policy revision conflicts, role/scope changes and combine
 non-voice rehearsal. Ruff/Compose and migration 0021 -> 0018 -> 0021 plus local/test
 drift checks passed. No live provider mutations, messages, calls or Git mutations.
 The teammate's voice wiring remains separate and unchanged.
+
+
+## A-025: claim_check answer, merge evidence and detection design choices
+
+- Added 2026-10-31. Implemented and verified offline only; team review requested.
+- Classification input is the author's answer recorded through the authenticated turn
+  bridge, not Bolna's final transcript. The completed-callback transcript contract is
+  unverified (A-014), so transcripts are still discarded by the status endpoint.
+- The claim_answer slot is non-reversible, so the policy layer never returns act for
+  it. Evidence instead requires a model source, no fallback and confidence at or above
+  SVAAR_POLICY_HIGH. The plan's voice read-back before commit is not implemented.
+- The classifier request runs inside the worker's row-locked transaction, bounded by
+  the classifier timeout. This is a background job, not a request path.
+- verify_claim calls the claim author; tier 2 applies when that author is not the
+  incident owner. Intents are prepared on request only; there is no automatic dialer.
+- Merge evidence needs a pull_number on the claim and a merge no earlier than the
+  incident opened. The GitHub App/webhook must subscribe to pull_request events; that
+  subscription is unconfigured and unverified.
+- Claim detection adds a prompt hint only. It costs one extra classifier request on
+  chat messages containing status words, and nothing when the classifier is disabled.
+- Owner: Team review; no individual assigned.
+
+
+## A-026: three tests fail only on Windows
+
+- Observed 2026-10-31 on Windows 11 with Python 3.11; does not occur on Linux CI/macOS.
+- Two parametrized tests (test_classifier invalid envelopes, failure_fingerprints bad
+  logs) have megabyte-sized test IDs. pytest stores the ID in PYTEST_CURRENT_TEST and
+  Windows caps environment variables at 32,767 characters, so they error.
+- The dir\escape.txt fingerprint case fails because zipfile on Windows rewrites the
+  backslash member name to dir/escape.txt, so the test builds a harmless archive.
+- test_late_classifier_never_reaches_reply_model_or_tools is intermittently flaky on
+  Windows timers (an exact 0.1 second float comparison).
+- Next action: add explicit ids= to the large parametrizations and build the backslash
+  member with a raw ZipInfo. No production code defect was found.
+- Owner: Unassigned.
