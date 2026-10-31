@@ -9,7 +9,7 @@ import json
 import logging
 import signal
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 from datetime import UTC, datetime
 
@@ -24,7 +24,7 @@ from svaar.agent.caspian import CaspianTelegramTransport
 from svaar.agent.llm import HttpChatModel
 from svaar.agent.loop import AgentLoop
 from svaar.agent.models import GatewayCursor
-from svaar.agent.notifications import delivered_incident_alert_at
+from svaar.agent.notifications import delivered_incident_alert_at, enqueue_escalation_nudge
 from svaar.agent.runtime import ChatRuntime
 from svaar.agent.transport import TransportUnavailableError
 from svaar.agent.worker import GatewayWorker, stream_key
@@ -33,11 +33,33 @@ from svaar.db import create_database_engine
 from svaar.decisions.classifier import StructuredClassifier
 from svaar.decisions.service import DecisionService
 from svaar.integrations.ci_actions import CiActionService
+from svaar.jobs.claim_checks import ClaimAnswerWorker
 from svaar.jobs.escalation import EscalationWorker
 from svaar.logging import configure_logging
-from svaar.voice.calls import prepare_escalation_call, prepare_phone_verification_call
+from svaar.voice.calls import (
+    claim_check_outcome,
+    prepare_claim_check_call,
+    prepare_escalation_call,
+    prepare_phone_verification_call,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _periodic(*workers: object) -> Callable[[], None] | None:
+    """Run each enabled worker independently; one failure never skips the next."""
+    enabled = [worker for worker in workers if worker is not None]
+    if not enabled:
+        return None
+
+    def run() -> None:
+        for worker in enabled:
+            try:
+                worker.run_once()
+            except Exception as exc:
+                logger.error("gateway_jobs_failed", extra={"error_type": type(exc).__name__})
+
+    return run
 
 
 def _run(settings: Settings) -> int:
@@ -62,7 +84,8 @@ def _run(settings: Settings) -> int:
                 build_registry(
                     ci_actions=CiActionService.from_settings(sessions, settings).execute
                     if settings.github_actions_enabled
-                    else None
+                    else None,
+                    prepare_claim_call=prepare_claim_check_call,
                 ),
                 ApprovalPolicy.from_settings(settings),
             ),
@@ -84,8 +107,20 @@ def _run(settings: Settings) -> int:
                 after_seconds=settings.escalation_after_seconds,
                 cooldown_seconds=settings.escalation_cooldown_seconds,
                 batch_size=settings.escalation_batch_size,
+                decisions=agent.decisions if agent.decisions.engine is not None else None,
+                nudge=enqueue_escalation_nudge,
             )
             if settings.escalation_jobs_enabled
+            else None
+        )
+        answers = (
+            ClaimAnswerWorker(
+                sessions,
+                agent.decisions,
+                call_outcome=claim_check_outcome,
+                batch_size=settings.escalation_batch_size,
+            )
+            if settings.claim_check_jobs_enabled
             else None
         )
         worker = GatewayWorker(
@@ -96,7 +131,7 @@ def _run(settings: Settings) -> int:
             connection_id=settings.caspian_telegram_connection_id,
             poll_seconds=settings.gateway_poll_seconds,
             batch_size=settings.gateway_batch_size,
-            periodic_jobs=jobs.run_once if jobs is not None else None,
+            periodic_jobs=_periodic(jobs, answers),
         )
         stop = threading.Event()
         previous = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}

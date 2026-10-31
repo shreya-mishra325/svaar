@@ -3,6 +3,7 @@
 from svaar.actions.registry import Registry
 from svaar.identity.phone_tools import VERIFY_PHONE_CODE
 from svaar.identity.tools import WHOAMI
+from svaar.incidents.claim_checks import RECORD_CLAIM_ANSWER, PrepareClaimCall, verify_claim_tool
 from svaar.incidents.tools import (
     ACKNOWLEDGE_INCIDENT,
     CHECK_CLAIM,
@@ -17,7 +18,11 @@ from svaar.replay.tools import REQUEST_REPLAY
 from svaar.resolution.tools import APPROVE_EXCEPTION, START_NEGOTIATION
 
 
-def build_registry(*, ci_actions: ExecuteAction | None = None) -> Registry:
+def build_registry(
+    *,
+    ci_actions: ExecuteAction | None = None,
+    prepare_claim_call: PrepareClaimCall | None = None,
+) -> Registry:
     """Return a registry of all implemented business tools."""
     registry = Registry()
     registry.register(WHOAMI)
@@ -28,6 +33,9 @@ def build_registry(*, ci_actions: ExecuteAction | None = None) -> Registry:
     registry.register(RECORD_CLAIM)
     registry.register(CHECK_CLAIM)
     registry.register(LIST_CLAIMS)
+    registry.register(RECORD_CLAIM_ANSWER)
+    if prepare_claim_call is not None:
+        registry.register(verify_claim_tool(prepare_claim_call))
     registry.register(START_NEGOTIATION)
     registry.register(APPROVE_EXCEPTION)
     registry.register(REQUEST_REPLAY)

@@ -31,6 +31,18 @@ class VoiceCall(Base):
             unique=True,
             postgresql_where=text("mission = 'escalation' AND incident_id IS NOT NULL"),
         ),
+        Index(
+            "uq_voice_calls_open_claim_check",
+            "claim_id",
+            unique=True,
+            postgresql_where=text(
+                "mission = 'claim_check' AND "
+                "state IN ('pending', 'placing', 'queued', 'active', 'unknown')"
+            ),
+        ),
+        CheckConstraint(
+            "(mission = 'claim_check') = (claim_id IS NOT NULL)", name="claim_context_valid"
+        ),
         CheckConstraint(
             "(mission = 'phone_verify' AND phone_challenge_id IS NOT NULL "
             "AND phone_binding_id IS NULL) OR "
@@ -52,6 +64,8 @@ class VoiceCall(Base):
     org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id"))
     principal_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("principals.id"))
     incident_id: Mapped[uuid.UUID | None] = mapped_column()
+    claim_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("claims.id"))
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("principals.id"))
     phone_binding_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("channel_bindings.id"))
     phone_challenge_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("phone_challenges.id"), unique=True
@@ -63,6 +77,7 @@ class VoiceCall(Base):
     error_code: Mapped[str | None] = mapped_column(String(64))
     mission: Mapped[str] = mapped_column(String(24))
     state: Mapped[str] = mapped_column(String(16), default="pending")
+    placed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

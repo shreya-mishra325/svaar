@@ -37,6 +37,8 @@ class ToolContext:
         phone_challenge_id: Server-bound pending challenge, only for phone_verify.
         incident_id: Server-bound incident for escalation voice tools.
         confirmation_id: Dispatcher-bound confirmation for a tier-2 execution.
+        claim_id: Server-bound claim for claim_check voice tools.
+        call_id: Server-resolved voice call for call-scoped tools.
     """
 
     org_id: uuid.UUID
@@ -48,6 +50,8 @@ class ToolContext:
     phone_challenge_id: uuid.UUID | None = None
     incident_id: uuid.UUID | None = None
     confirmation_id: uuid.UUID | None = None
+    claim_id: uuid.UUID | None = None
+    call_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)

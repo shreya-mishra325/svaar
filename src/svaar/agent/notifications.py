@@ -173,3 +173,49 @@ def delivered_incident_alert_at(
             Conversation.principal_id == principal_id,
         )
     )
+
+
+def enqueue_escalation_nudge(
+    session: Session,
+    org_id: uuid.UUID,
+    principal_id: uuid.UUID,
+    incident_id: uuid.UUID,
+    flaky: bool,
+) -> bool:
+    """Queue one private reminder per incident before escalation continues."""
+    body = (
+        "This CI failure looks flaky, so I am waiting before any call. "
+        "Acknowledge the incident here if it is handled."
+        if flaky
+        else "Reminder: an incident still needs acknowledgement. Acknowledge it here, "
+        "otherwise escalation may continue by phone."
+    )
+    return enqueue_private_notification(
+        session,
+        org_id=org_id,
+        principal_id=principal_id,
+        key=f"escalation-nudge:{incident_id}",
+        body=body,
+    )
+
+
+CLAIM_CHECK_FAILURE_FOLLOW_UP = (
+    "A claim verification call you requested did not complete. The claim stays "
+    "unverified; this call outcome does not verify or contradict it."
+)
+
+
+def enqueue_claim_check_failure(
+    session: Session,
+    org_id: uuid.UUID,
+    requester_id: uuid.UUID,
+    call_id: uuid.UUID,
+) -> bool:
+    """Queue one private notice per failed claim_check call to its requester."""
+    return enqueue_private_notification(
+        session,
+        org_id=org_id,
+        principal_id=requester_id,
+        key=f"claim-check-failure:{call_id}",
+        body=CLAIM_CHECK_FAILURE_FOLLOW_UP,
+    )

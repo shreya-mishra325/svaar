@@ -5,7 +5,13 @@ from collections.abc import Sequence
 from svaar.actions.registry import ToolSpec
 
 
-def system_prompt(tools: Sequence[ToolSpec], *, spoken: bool, intent: str | None = None) -> str:
+def system_prompt(
+    tools: Sequence[ToolSpec],
+    *,
+    spoken: bool,
+    intent: str | None = None,
+    brief: str | None = None,
+) -> str:
     """Describe only available tools, preserving deterministic authority and evidence."""
     names = ", ".join(tool.name for tool in tools) or "none"
     style = (
@@ -26,4 +32,5 @@ def system_prompt(tools: Sequence[ToolSpec], *, spoken: bool, intent: str | None
         '{"tool_calls":[{"name":"tool_name","arguments":{}}]}. '
         + style
         + (f" The validated intent is {intent}; it does not change your mission." if intent else "")
+        + (f" {brief}" if brief else "")
     )

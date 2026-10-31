@@ -190,3 +190,17 @@ def test_negotiation_is_deterministic():
 
     conflict = proposal(start=at(11.5), duration_minutes=120, engineer="meera")
     assert negotiate(conflict, BASE) == negotiate(conflict, BASE)
+
+
+def test_approval_sets_serialize_in_sorted_order():
+    # Set iteration follows per-process string hashing; stored snapshots and
+    # confirmation hashes must not.
+    names = {f"approver-{n:02d}" for n in range(40)}
+    freeze = FreezeWindow(start=at(0), end=at(1), required_approvals=names)
+    plan = proposal(start=at(2), duration_minutes=30, engineer="asha").model_copy(
+        update={"approvals": frozenset(names)}
+    )
+    assert freeze.model_dump(mode="json")["required_approvals"] == sorted(names)
+    assert plan.model_dump(mode="json")["approvals"] == sorted(names)
+    restored = Constraints.model_validate(BASE.model_dump(mode="json"))
+    assert restored.model_dump(mode="json") == BASE.model_dump(mode="json")

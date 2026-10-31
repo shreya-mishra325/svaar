@@ -25,6 +25,7 @@ class ClaimInput(BaseModel):
     run_id: int | None = Field(default=None, gt=0, le=9223372036854775807, strict=True)
     run_attempt: int | None = Field(default=None, gt=0, le=2147483647, strict=True)
     head_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
+    pull_number: int | None = Field(default=None, gt=0, le=2147483647, strict=True)
 
     @model_validator(mode="after")
     def validate_target(self):
@@ -34,6 +35,8 @@ class ClaimInput(BaseModel):
             raise ValueError("An exact workflow run and attempt are required")
         if self.kind == "fix_merged" and (self.run_id is not None or self.run_attempt is not None):
             raise ValueError("Merge claims do not use workflow success as evidence")
+        if self.kind == "workflow_succeeded" and self.pull_number is not None:
+            raise ValueError("Workflow claims do not use merge events as evidence")
         return self
 
 
@@ -138,7 +141,8 @@ def check_claim(session: Session, org_id: uuid.UUID, claim_id: uuid.UUID) -> Cla
                         rule="workflow-success-v1",
                     )
                 )
-    # No merge-event ingress or call-answer evidence adapter exists yet.
+    if claim.kind == "fix_merged" and claim.pull_number is not None:
+        _merge_evidence(session, org_id, claim, incident)
     session.flush()
     stances = set(
         session.scalars(
@@ -157,6 +161,59 @@ def check_claim(session: Session, org_id: uuid.UUID, claim_id: uuid.UUID) -> Cla
     )
     session.flush()
     return claim
+
+
+POSITIVE_MERGE = re.compile(
+    r"(?:(?:the|this|that|my|our)\s+)?(?:fix|pr|pull request|change|patch)"
+    r"(?:\s+#?(?P<pr>[0-9]+))?\s+(?:is|was|has been|got)\s+merged[.!]?",
+    re.IGNORECASE,
+)
+
+
+def _merge_evidence(session: Session, org_id: uuid.UUID, claim: Claim, incident) -> None:
+    """Support a narrow merge assertion only with a signed same-repository merge fact.
+
+    The merge must name the claim's pull request and happen no earlier than the
+    incident opened. Absent merges and unrecognized wording produce no evidence.
+    """
+    match = POSITIVE_MERGE.fullmatch(claim.statement.strip())
+    if match is None or (
+        match.group("pr") is not None and int(match.group("pr")) != claim.pull_number
+    ):
+        return
+    events = session.scalars(
+        select(ObservedEvent)
+        .join(WebhookDelivery, WebhookDelivery.id == ObservedEvent.source_delivery_id)
+        .where(
+            ObservedEvent.org_id == org_id,
+            ObservedEvent.repository_id == incident.repository_id,
+            ObservedEvent.source == "github",
+            ObservedEvent.kind == "pull_request.merged",
+            ObservedEvent.occurred_at >= incident.opened_at,
+            WebhookDelivery.event_id == ObservedEvent.id,
+            WebhookDelivery.org_id == org_id,
+            WebhookDelivery.state == "accepted",
+        )
+        .order_by(ObservedEvent.occurred_at, ObservedEvent.id)
+    ).all()
+    for event in events:
+        if event.data.get("pull_number") != claim.pull_number:
+            continue
+        existing = session.scalar(
+            select(ClaimEvidence.id).where(
+                ClaimEvidence.claim_id == claim.id, ClaimEvidence.event_id == event.id
+            )
+        )
+        if existing is None:
+            session.add(
+                ClaimEvidence(
+                    org_id=org_id,
+                    claim_id=claim.id,
+                    event_id=event.id,
+                    stance="supports",
+                    rule="merge-event-v1",
+                )
+            )
 
 
 def list_claims(session: Session, org_id: uuid.UUID, incident_id: uuid.UUID) -> list[Claim]:
@@ -195,8 +252,14 @@ def claim_summary(session: Session, claim: Claim) -> dict:
         "run_id": claim.run_id,
         "run_attempt": claim.run_attempt,
         "head_sha": claim.head_sha,
+        "pull_number": claim.pull_number,
         "evidence": [
-            {"event_id": str(row.event_id), "stance": row.stance, "rule": row.rule}
+            {
+                "event_id": str(row.event_id) if row.event_id else None,
+                "claim_answer_id": str(row.claim_answer_id) if row.claim_answer_id else None,
+                "stance": row.stance,
+                "rule": row.rule,
+            }
             for row in evidence
         ],
     }

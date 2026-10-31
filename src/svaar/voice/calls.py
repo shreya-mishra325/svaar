@@ -5,8 +5,10 @@ import re
 import secrets
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from svaar.actions.missions import Mission
@@ -38,9 +40,17 @@ class CallService:
         *,
         escalation_authorized: Callable[[Session, uuid.UUID, uuid.UUID, uuid.UUID], bool]
         | None = None,
+        claim_check_authorized: Callable[[Session, uuid.UUID, uuid.UUID, uuid.UUID], bool]
+        | None = None,
+        daily_limit: int | None = None,
+        ready: Callable[[], bool] | None = None,
     ) -> None:
+        if daily_limit is not None and not 1 <= daily_limit <= 20:
+            raise ValueError("Invalid per-recipient daily call limit")
         self.sessions, self.provider = sessions, provider
         self.escalation_authorized = escalation_authorized
+        self.claim_check_authorized = claim_check_authorized
+        self.daily_limit, self.ready = daily_limit, ready
 
     def _phone(self, session: Session, call: VoiceCall) -> str | None:
         if call.mission == Mission.PHONE_VERIFY.value:
@@ -58,6 +68,16 @@ class CallService:
                 call.incident_id,
             ):
                 return None
+        if call.mission == Mission.CLAIM_CHECK.value:
+            # Without a composed guard, claim checks fail closed at dispatch time.
+            if (
+                call.claim_id is None
+                or self.claim_check_authorized is None
+                or not self.claim_check_authorized(
+                    session, call.org_id, call.principal_id, call.claim_id
+                )
+            ):
+                return None
         binding = session.get(ChannelBinding, call.phone_binding_id)
         if (
             get_principal(session, call.org_id, call.principal_id) is None
@@ -71,8 +91,38 @@ class CallService:
             return None
         return binding.address
 
+    def _limit_reached(self, session: Session, call: VoiceCall) -> bool:
+        """Count placements to this person in the last day under a per-recipient lock."""
+        if self.daily_limit is None:
+            return False
+        lock = int.from_bytes(
+            hashlib.sha256(f"voice-recipient:{call.org_id}:{call.principal_id}".encode()).digest()[
+                :8
+            ],
+            "big",
+            signed=True,
+        )
+        session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock})
+        placed = session.scalar(
+            select(func.count())
+            .select_from(VoiceCall)
+            .where(
+                VoiceCall.org_id == call.org_id,
+                VoiceCall.principal_id == call.principal_id,
+                VoiceCall.placed_at > datetime.now(UTC) - timedelta(days=1),
+            )
+        )
+        return placed >= self.daily_limit
+
     def place(self, org_id: uuid.UUID, call_id: uuid.UUID) -> str:
         """Claim a pending intent before network I/O; never retry an uncertain placement."""
+        if self.ready is not None:
+            try:
+                ready = self.ready()
+            except Exception:
+                ready = False
+            if not ready:
+                return "provider_not_ready"
         with self.sessions() as session:
             call = session.scalar(
                 select(VoiceCall)
@@ -90,10 +140,12 @@ class CallService:
             phone = self._phone(session, call)
             if phone is None:
                 return "not_authorized"
+            if self._limit_reached(session, call):
+                return "call_limit_reached"
             reference = secrets.token_urlsafe(32)
             call.call_ref_hash = hashlib.sha256(reference.encode()).hexdigest()
             call.provider_agent_id = self.provider.agent_id
-            call.state = "placing"
+            call.state, call.placed_at = "placing", datetime.now(UTC)
             session.commit()  # A crash from here onwards must not repeat a POST.
             try:
                 receipt = self.provider.place_call(phone, reference)
@@ -237,3 +289,70 @@ def prepare_escalation_call(
     session.add(call)
     session.flush()
     return call.id
+
+
+def _single_verified_phone(session: Session, principal_id: uuid.UUID) -> ChannelBinding | None:
+    phones = session.scalars(
+        select(ChannelBinding)
+        .where(
+            ChannelBinding.principal_id == principal_id,
+            ChannelBinding.channel == "phone",
+            ChannelBinding.verified_at.is_not(None),
+        )
+        .limit(2)
+    ).all()
+    if len(phones) != 1 or not re.fullmatch(r"\+[1-9][0-9]{7,14}", phones[0].address):
+        return None
+    return phones[0]
+
+
+def prepare_claim_check_call(
+    session: Session,
+    org_id: uuid.UUID,
+    principal_id: uuid.UUID,
+    claim_id: uuid.UUID,
+    requested_by: uuid.UUID,
+) -> uuid.UUID | None:
+    """Prepare one pending claim_check intent; at most one open check per claim, no dial.
+
+    The requester is recorded only so a failed call can be reported back to them.
+    """
+    if (
+        get_principal(session, org_id, principal_id) is None
+        or get_principal(session, org_id, requested_by) is None
+    ):
+        return None
+    phone = _single_verified_phone(session, principal_id)
+    if phone is None:
+        return None
+    call = VoiceCall(
+        org_id=org_id,
+        principal_id=principal_id,
+        claim_id=claim_id,
+        requested_by=requested_by,
+        mission=Mission.CLAIM_CHECK.value,
+        phone_binding_id=phone.id,
+    )
+    try:
+        with session.begin_nested():
+            session.add(call)
+            session.flush()
+    except IntegrityError:
+        return None  # Another check for this claim is still open.
+    return call.id
+
+
+def claim_check_outcome(session: Session, org_id: uuid.UUID, call_id: uuid.UUID) -> str:
+    """Report completed, failed or open from receipts only; never from caller words."""
+    call = session.scalar(
+        select(VoiceCall).where(
+            VoiceCall.id == call_id,
+            VoiceCall.org_id == org_id,
+            VoiceCall.mission == Mission.CLAIM_CHECK.value,
+        )
+    )
+    if call is None or call.state == "failed":
+        return "failed"
+    if call.state == "closed":
+        return "completed" if call.provider_status == "completed" else "failed"
+    return "open"

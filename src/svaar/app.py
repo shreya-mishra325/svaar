@@ -1,18 +1,22 @@
 """Application factory and lifecycle composition; feature logic belongs in modules."""
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
 
 from svaar.actions.catalog import build_registry
 from svaar.actions.dispatcher import ApprovalPolicy, Dispatcher
 from svaar.agent.llm import HttpChatModel
 from svaar.agent.loop import AgentLoop
-from svaar.agent.notifications import enqueue_call_failure, enqueue_voice_fallback
+from svaar.agent.notifications import (
+    enqueue_call_failure,
+    enqueue_claim_check_failure,
+    enqueue_voice_fallback,
+)
 from svaar.agent.runtime import ChatRuntime
 from svaar.agent.voice_runner import VoiceAgentExecutor
 from svaar.api.errors import ErrorResponse, install_error_handlers
@@ -22,12 +26,21 @@ from svaar.config import Settings
 from svaar.db import create_database_engine
 from svaar.decisions.classifier import StructuredClassifier
 from svaar.decisions.service import DecisionService
+from svaar.incidents.claim_checks import claim_check_authorized
+from svaar.incidents.service import escalation_authorized
 from svaar.integrations.ci_actions import CiActionService
 from svaar.logging import configure_logging
-from svaar.voice.calls import prepare_phone_verification_call
+from svaar.voice.calls import (
+    CallService,
+    prepare_claim_check_call,
+    prepare_phone_verification_call,
+)
 from svaar.voice.contracts import TurnRunner
+from svaar.voice.provider import VoiceProvider
+from svaar.voice.references import ReferencedTurnRunner
 from svaar.voice.runtime import VoiceRuntime
 from svaar.voice.status import router as voice_status_router
+from svaar.voice.turns import turn_router
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +59,10 @@ def create_app(settings: Settings | None = None, *, status_ingress: bool = False
         loop = None
         logger.info("application_started")
         try:
-            if settings.llm_model is not None and not status_ingress:
+            # The restricted listener starts the agent only to serve the turn route.
+            if settings.llm_model is not None and (
+                not status_ingress or settings.voice_turn_mode is not None
+            ):
                 model = HttpChatModel.from_settings(settings)
                 dispatcher = Dispatcher(
                     build_registry(
@@ -54,7 +70,8 @@ def create_app(settings: Settings | None = None, *, status_ingress: bool = False
                             app.state.session_factory, settings
                         ).execute
                         if settings.github_actions_enabled
-                        else None
+                        else None,
+                        prepare_claim_call=prepare_claim_check_call,
                     ),
                     ApprovalPolicy.from_settings(settings),
                 )
@@ -88,6 +105,11 @@ def create_app(settings: Settings | None = None, *, status_ingress: bool = False
                 else None
             )
             app.state.voice_turn_runner = runner
+            app.state.voice_reference_runner = (
+                ReferencedTurnRunner(app.state.session_factory, runner)
+                if runner is not None
+                else None
+            )
             yield
         finally:
             try:
@@ -96,6 +118,8 @@ def create_app(settings: Settings | None = None, *, status_ingress: bool = False
                 if model is not None:
                     await run_in_threadpool(model.close)
             finally:
+                if hasattr(app.state, "voice_reference_runner"):
+                    del app.state.voice_reference_runner
                 if hasattr(app.state, "voice_turn_runner"):
                     del app.state.voice_turn_runner
                 if hasattr(app.state, "chat_runtime"):
@@ -122,6 +146,7 @@ def create_app(settings: Settings | None = None, *, status_ingress: bool = False
     )
     app.state.cloudflare_status_ingress = status_ingress
     app.state.voice_failure_notifier = enqueue_call_failure
+    app.state.voice_requester_notifier = enqueue_claim_check_failure
     app.state.settings = settings
     install_error_handlers(app)
     if status_ingress:
@@ -129,6 +154,8 @@ def create_app(settings: Settings | None = None, *, status_ingress: bool = False
     else:
         app.include_router(health_router)
         app.include_router(api_router)
+    if settings.voice_turn_mode is not None:
+        app.include_router(turn_router(settings.voice_turn_mode), prefix="/api/v1")
     return app
 
 
@@ -142,3 +169,26 @@ def create_status_ingress(settings: Settings | None = None) -> FastAPI:
     if settings.voice_status_secret is None:
         raise ValueError("Configure a separate voice status secret before starting ingress")
     return create_app(settings, status_ingress=True)
+
+
+def create_call_service(
+    sessions: sessionmaker[Session],
+    provider: VoiceProvider,
+    settings: Settings,
+    *,
+    ready: Callable[[], bool] | None = None,
+) -> CallService:
+    """Compose every dispatch-time guard for live placement.
+
+    Escalation and claim checks are rechecked against current incident and claim
+    state, calls per recipient are capped and an optional readiness probe runs
+    first. No route, job or model tool invokes placement; callers stay explicit.
+    """
+    return CallService(
+        sessions,
+        provider,
+        escalation_authorized=escalation_authorized,
+        claim_check_authorized=claim_check_authorized,
+        daily_limit=settings.voice_daily_call_limit,
+        ready=ready,
+    )

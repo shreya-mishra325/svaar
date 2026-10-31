@@ -1,6 +1,6 @@
 # Svaar anomalies and open integration questions
 
-Last reviewed: 2026-10-24 (Asia/Calcutta).
+Last reviewed: 2026-10-31 (Asia/Calcutta).
 
 ## How to use this log
 
@@ -827,6 +827,7 @@ was performed.
 - Still missing: dedicated automatic claim-detection slot/runtime, merge-event
   ingress, claim_check call context/record_claim_answer, completed-call
   classification, verification tier policy and guarded escalation.
+  Superseded 2026-10-31: these are implemented and verified offline; see A-025.
   check_claim is explicit; no scheduler refreshes claims yet.
 - Evidence: 626 tests passed; lint/format, 0017 test round trip and local/test
   schema checks passed. No live calls, messages or provider requests occurred.
@@ -843,7 +844,8 @@ was performed.
   still needs incident/owner authorization rechecked at actual dispatch.
 - Remaining: compose authorized dispatch with account readiness, actual call limits,
   final recipient/incident checks, uncertain-placement reconciliation and live
-  acceptance. A preparation cooldown is not proof of provider call timing.
+  acceptance. Update 2026-10-31: guards, readiness and limits are implemented in
+  CallService/create_call_service (A-027); dispatch wiring and live acceptance remain. A preparation cooldown is not proof of provider call timing.
   The existing teammate-owned Bolna wiring remains pending.
 - Evidence: 639 tests passed without skips; independent rollback, concurrency,
   delivery grace, acknowledgement, phone retry, cooldown, default dialing refusal
@@ -909,3 +911,94 @@ atomic alert rollback, policy revision conflicts, role/scope changes and combine
 non-voice rehearsal. Ruff/Compose and migration 0021 -> 0018 -> 0021 plus local/test
 drift checks passed. No live provider mutations, messages, calls or Git mutations.
 The teammate's voice wiring remains separate and unchanged.
+
+
+## A-025: claim_check answer, merge evidence and detection design choices
+
+- Added 2026-10-31. Implemented and verified offline only; team review requested.
+- Classification input is the author's answer recorded through the authenticated turn
+  bridge, not Bolna's final transcript. The completed-callback transcript contract is
+  unverified (A-014), so transcripts are still discarded by the status endpoint.
+- The claim_answer slot is non-reversible, so the policy layer never returns act for
+  it. Evidence instead requires a model source, no fallback and confidence at or above
+  SVAAR_POLICY_HIGH. The plan's voice read-back before commit is not implemented.
+- The classifier request runs inside the worker's row-locked transaction, bounded by
+  the classifier timeout. This is a background job, not a request path.
+- verify_claim calls the claim author; tier 2 applies when that author is not the
+  incident owner. Intents are prepared on request only; there is no automatic dialer.
+  The requester is recorded and receives one notice if the call fails. Polling
+  reconciliation through CallService.refresh does not send these notices; only the
+  authenticated status webhook does.
+- Merge evidence needs a pull_number on the claim and a merge no earlier than the
+  incident opened. The GitHub App/webhook must subscribe to pull_request events; that
+  subscription is unconfigured and unverified.
+- Claim detection adds a prompt hint only. It costs one extra classifier request on
+  chat messages containing status words, and nothing when the classifier is disabled.
+- Owner: Team review; no individual assigned.
+
+
+## A-026: three tests fail only on Windows
+
+- Status: Resolved 2026-10-31; see the resolution note below.
+
+- Observed 2026-10-31 on Windows 11 with Python 3.11; does not occur on Linux CI/macOS.
+- Two parametrized tests (test_classifier invalid envelopes, failure_fingerprints bad
+  logs) have megabyte-sized test IDs. pytest stores the ID in PYTEST_CURRENT_TEST and
+  Windows caps environment variables at 32,767 characters, so they error.
+- The dir\escape.txt fingerprint case fails because zipfile on Windows rewrites the
+  backslash member name to dir/escape.txt, so the test builds a harmless archive.
+- test_late_classifier_never_reaches_reply_model_or_tools is intermittently flaky on
+  Windows timers (an exact 0.1 second float comparison).
+- Next action: add explicit ids= to the large parametrizations and build the backslash
+  member with a raw ZipInfo. No production code defect was found.
+- Owner: Unassigned.
+
+
+## A-027: escalation advice and dispatch guard choices
+
+- Added 2026-10-31. Implemented and verified offline only; team review requested.
+- The CI failure category is asked at escalation time, after the owner alert was
+  delivered, not at alert creation. A flaky result therefore cannot quieten the first
+  alert; it sends a quiet note and delays the call once instead.
+- Advice is asked at most once per escalation job and can only delay by one grace
+  period. explain_ci_failure does not yet show the category.
+- The daily limit counts placements claimed in the last 24 hours, including failed and
+  unknown ones, per organization and recipient. Bolna's own concurrency is separate.
+- Readiness is an injected probe; a live caller would pass BolnaClient.readiness. No
+  production dispatch path exists, so these guards are not live-verified.
+- Thresholds remain placeholders until a labelled evaluation set exists.
+- Owner: Team review; no individual assigned.
+
+### A-026 resolution, 2026-10-31
+
+The backslash case exposed a real platform difference: zipfile also normalizes names
+on read, so incidents/fingerprints.py now checks ZipInfo.orig_filename. The voice gate
+now records a classifier deadline expiry explicitly instead of rereading the clock.
+Large parametrized cases have short IDs. A fourth Windows-only failure,
+test_concurrent_enrichment_records_one_hash, came from localhost resolving to IPv6
+first (10 second connects); the local .env now uses 127.0.0.1. Consider changing
+.env.example to 127.0.0.1 for Windows developers. Full suite: 739 passed, 0 failed.
+
+
+## A-028: Bolna turn route built from partial documentation
+
+- Added 2026-10-31. Implemented and verified offline only; live acceptance pending.
+- Documented: custom LLM base_url, Bearer-only auth, streamed OpenAI deltas ending in
+  data: [DONE], public endpoints only; user_data keys fill {{variable}} prompt
+  placeholders; status webhooks carry UUID id and agent_id. Sources:
+  https://www.bolna.ai/docs/customizations/using-custom-llm
+  https://www.bolna.ai/docs/tool-calling/custom-function-variables
+  https://www.bolna.ai/docs/post-call/execution-payload
+- Undocumented, so unverified: whether the agent prompt is sent as a system message with
+  {{call_ref}} filled in, whether Bolna retries or merges caller messages, and request
+  timeouts. Requests without exactly one svaar_call_ref marker fail closed.
+- Turn identity: llm_endpoint uses the count of caller messages in replayed history. If
+  Bolna merges or drops caller messages, the runtime refuses the gapped or conflicting
+  index rather than guessing. Function mode has no retry identity; arrivals are
+  sequenced, so a provider retry would run as a new turn.
+- Design change for the voice teammate: an authenticated turn now activates a queued
+  call that already has a provider receipt. Previously only the in-progress callback
+  did; the earlier dashboard 422 most likely came from the sample's placeholder IDs.
+- Svaar replies only after the full turn (up to the 8 second voice deadline); a role
+  chunk is sent first. Token-level streaming is not implemented.
+- Owner: Unassigned.

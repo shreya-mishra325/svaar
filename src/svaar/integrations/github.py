@@ -4,7 +4,8 @@ import hashlib
 import json
 import logging
 import uuid
-from datetime import UTC
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
@@ -54,6 +55,38 @@ class _Run(_Wire):
     head_branch: str | None = Field(default=None, max_length=255)
 
 
+class _Head(_Wire):
+    sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    ref: str = Field(min_length=1, max_length=255)
+
+
+class _PullRequest(_Wire):
+    number: int = Field(gt=0, le=2147483647, strict=True)
+    merged: bool = Field(strict=True)
+    merged_at: AwareDatetime | None
+    merge_commit_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
+    head: _Head
+    base: _Head
+
+
+class _PullRequestEvent(_Wire):
+    action: str = Field(min_length=1, max_length=32)
+    repository: _Identifier
+    installation: _Identifier
+    pull_request: _PullRequest
+
+
+@dataclass(frozen=True)
+class _Observation:
+    """Normalized scope and identity shared by every supported event type."""
+
+    repository_id: int
+    installation_id: int
+    kind: str
+    occurred_at: datetime
+    groupable: bool
+
+
 class _Workflow(_Wire):
     action: Literal["requested", "in_progress", "completed"]
     repository: _Identifier
@@ -74,13 +107,42 @@ def _invalid_constant(value):
     raise ValueError("Non-JSON numeric value")
 
 
-def _normalize(event_type: str, raw: bytes) -> tuple[_Workflow | None, dict | None, str | None]:
+def _normalize_merge(body: dict) -> tuple[_Observation | None, dict | None, str | None]:
+    """Only a closed, merged pull request is an observation; other actions are ignored."""
+    try:
+        event = _PullRequestEvent.model_validate(body)
+        pull = event.pull_request
+        if event.action != "closed" or not pull.merged:
+            return None, None, None
+        if pull.merged_at is None or pull.merge_commit_sha is None:
+            raise ValueError("Merged pull request without merge provenance")
+    except (ValueError, TypeError, ValidationError, RecursionError):
+        raise GithubPayloadError("Invalid webhook payload") from None
+    occurred = pull.merged_at.astimezone(UTC)
+    data = {
+        "pull_number": pull.number,
+        "merge_commit_sha": pull.merge_commit_sha,
+        "head_sha": pull.head.sha,
+        "head_branch": pull.head.ref,
+        "base_branch": pull.base.ref,
+        "merged_at": occurred.isoformat(),
+    }
+    key = f"pull_request:{event.repository.id}:{pull.number}:merged:{occurred.isoformat()}"
+    observation = _Observation(
+        event.repository.id, event.installation.id, "pull_request.merged", occurred, False
+    )
+    return observation, data, key
+
+
+def _normalize(event_type: str, raw: bytes) -> tuple[_Observation | None, dict | None, str | None]:
     try:
         body = json.loads(raw, object_pairs_hook=_pairs, parse_constant=_invalid_constant)
         if not isinstance(body, dict):
             raise ValueError("Object required")
     except (ValueError, TypeError, RecursionError):
         raise GithubJsonError("Invalid webhook JSON") from None
+    if event_type == "pull_request":
+        return _normalize_merge(body)
     if event_type != "workflow_run":
         return None, None, None
     try:
@@ -123,7 +185,14 @@ def _normalize(event_type: str, raw: bytes) -> tuple[_Workflow | None, dict | No
             f"workflow_run:{event.repository.id}:{run.id}:"
             f"{run.run_attempt}:{event.action}:{occurred}"
         )
-        return event, data, key
+        observation = _Observation(
+            event.repository.id,
+            event.installation.id,
+            "workflow_run." + event.action,
+            run.updated_at,
+            True,
+        )
+        return observation, data, key
     except (ValueError, TypeError, ValidationError, RecursionError):
         raise GithubPayloadError("Invalid webhook payload") from None
 
@@ -187,8 +256,8 @@ def ingest_delivery(
         if event is None:
             session.add(receipt)
             return "ignored"
-        mapping = session.get(RepoMapping, event.repository.id)
-        if mapping is None or mapping.installation_id != event.installation.id:
+        mapping = session.get(RepoMapping, event.repository_id)
+        if mapping is None or mapping.installation_id != event.installation_id:
             receipt.reason = "unmapped_repository"
             session.add(receipt)
             return "unmapped"
@@ -207,13 +276,14 @@ def ingest_delivery(
                 source="github",
                 external_key=key,
                 source_delivery_id=delivery_id,
-                kind="workflow_run." + event.action,
-                occurred_at=event.workflow_run.updated_at,
+                kind=event.kind,
+                occurred_at=event.occurred_at,
                 data=data,
             )
             session.add(observed)
             session.flush()
-            if defer_grouping:
+            # Merge facts are claim evidence found by query; they never open incidents.
+            if event.groupable and defer_grouping:
                 session.add(
                     CiJob(
                         event_id=observed.id,
@@ -222,7 +292,7 @@ def ingest_delivery(
                         owner_principal_id=mapping.owner_principal_id,
                     )
                 )
-            else:
+            elif event.groupable:
                 grouped = group_observation(
                     session, observed, owner_principal_id=mapping.owner_principal_id
                 )

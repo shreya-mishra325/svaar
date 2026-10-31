@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from svaar.actions.dispatcher import ConfirmationTicket, Dispatcher
+from svaar.actions.missions import Mission
 from svaar.actions.registry import Channel, ToolContext
 from svaar.agent.inference import InferencePool, TurnTimeoutError
 from svaar.agent.llm import ChatModel, ModelReply, ModelUnavailableError, RetryableModelError
@@ -23,16 +24,32 @@ from svaar.agent.profiles import CHAT, VOICE, TurnProfile
 from svaar.agent.prompts import system_prompt
 from svaar.decisions.classifier import StructuredClassifier
 from svaar.decisions.policy import PolicyOutcome
-from svaar.decisions.questions import TRANSCRIPT_USABILITY, VOICE_INTENT, Question
+from svaar.decisions.questions import (
+    CLAIM_DETECTION,
+    TRANSCRIPT_USABILITY,
+    VOICE_INTENT,
+    Question,
+)
 from svaar.decisions.service import DecisionService
 from svaar.decisions.types import Decision, DecisionEngine, DecisionUnavailableError
 from svaar.identity.service import get_principal
+from svaar.incidents.claim_checks import claim_check_brief
 
 logger = logging.getLogger(__name__)
 VOICE_FALLBACK = "I can't check that right now, I will message you."
 CHAT_FALLBACK = "I couldn't finish that request. Please try again or ask an operator."
 CLARIFY = "Could you repeat or clarify that request?"
 HISTORY_LIMIT = 12
+# Cheap local prefilter: only messages naming a work status reach the classifier.
+STATUS_WORDS = re.compile(
+    r"\b(merged|fixed|passed|green|deployed|shipped|done|succeeded|resolved)\b",
+    re.IGNORECASE,
+)
+CLAIM_HINT = (
+    "The caller's message may state verifiable work status. If it concerns an incident, "
+    "record it with record_claim, using the exact run and attempt or the pull request "
+    "number when known. Recording is not proof and does not set its status."
+)
 
 
 @dataclass(frozen=True)
@@ -49,6 +66,9 @@ class _BudgetedEngine:
 
     def __init__(self, engine: DecisionEngine, pool: InferencePool, deadline: float) -> None:
         self.engine, self.pool, self.deadline = engine, pool, deadline
+        # Timer waits can return a few milliseconds early (notably on Windows), so a
+        # deadline expiry is recorded explicitly rather than inferred from the clock.
+        self.timed_out = False
 
     def decide(self, state: str, questions: Sequence[Question]) -> Sequence[Decision]:
         try:
@@ -60,6 +80,7 @@ class _BudgetedEngine:
                 engine = engine.with_timeout(remaining)
             return self.pool.call(lambda: engine.decide(state, questions), deadline=self.deadline)
         except TurnTimeoutError:
+            self.timed_out = True
             raise DecisionUnavailableError("Decision turn deadline reached") from None
 
 
@@ -119,8 +140,22 @@ class AgentLoop:
                 if intent is None:
                     return TurnResult(CLARIFY, "clarification_required")
             specs = self.dispatcher.available_tools(session, context)
+            brief = None
+            if (
+                not spoken
+                and any(spec.name == "record_claim" for spec in specs)
+                and self._claim_detected(session, context, principal.display_name, text, deadline)
+            ):
+                brief = CLAIM_HINT
+            if context.mission is Mission.CLAIM_CHECK and context.claim_id is not None:
+                brief = claim_check_brief(
+                    session, context.org_id, context.principal_id, context.claim_id
+                )
             messages: list[dict[str, Any]] = [
-                {"role": "system", "content": system_prompt(specs, spoken=spoken, intent=intent)}
+                {
+                    "role": "system",
+                    "content": system_prompt(specs, spoken=spoken, intent=intent, brief=brief),
+                }
             ]
             messages.extend(
                 {"role": item["role"], "content": item["content"]}
@@ -150,6 +185,9 @@ class AgentLoop:
                     if proposal.name in {"confirm_action", "verify_phone_code"}:
                         # A model's invented/transformed nonce is never confirmation.
                         arguments = {"code": text}
+                    if proposal.name == "record_claim_answer":
+                        # An answer is the caller's own words, never a model summary.
+                        arguments = {"answer": text}
                     result = self.dispatcher.dispatch(session, context, proposal.name, arguments)
                     if result.ticket is not None:
                         tickets.append(result.ticket)
@@ -194,6 +232,8 @@ class AgentLoop:
             state=state,
             questions=[TRANSCRIPT_USABILITY, VOICE_INTENT],
         )
+        if bounded is not None and bounded.timed_out:
+            raise TurnTimeoutError("Decision turn deadline reached")
         self._check_deadline(deadline)
         usability, intent = decisions
         if any(result.outcome is not PolicyOutcome.ACT for result in decisions):
@@ -201,6 +241,32 @@ class AgentLoop:
         if usability.decision.value != "usable" or intent.decision.value == "other":
             return None
         return intent.decision.value
+
+    def _claim_detected(
+        self,
+        session: Session,
+        context: ToolContext,
+        name: str | None,
+        text: str,
+        deadline: float,
+    ) -> bool:
+        """Ask the optional classifier once; a detection only suggests record_claim."""
+        engine = self.decisions.engine
+        if engine is None or STATUS_WORDS.search(text) is None:
+            return False
+        state = text.replace(name, "[person]") if name else text
+        service = DecisionService(
+            _BudgetedEngine(engine, self._inference, deadline),
+            high=self.decisions.high,
+            low=self.decisions.low,
+        )
+        [result] = service.decide(
+            session, org_id=context.org_id, state=state, questions=[CLAIM_DETECTION]
+        )
+        detected = result.outcome is PolicyOutcome.ACT and result.decision.value == "claim"
+        if result.record is not None:
+            result.record.action_taken = "suggested_record_claim" if detected else None
+        return detected
 
     def _complete(
         self,

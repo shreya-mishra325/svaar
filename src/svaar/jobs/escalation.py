@@ -10,6 +10,9 @@ from sqlalchemy import exists, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
+from svaar.decisions.policy import PolicyOutcome
+from svaar.decisions.questions import CI_FAILURE_CATEGORY, ESCALATION_STEP
+from svaar.decisions.service import DecisionService
 from svaar.identity.service import get_principal
 from svaar.incidents.models import Incident
 from svaar.jobs.models import EscalationJob
@@ -17,6 +20,7 @@ from svaar.jobs.models import EscalationJob
 logger = logging.getLogger(__name__)
 AlertTime = Callable[[Session, uuid.UUID, uuid.UUID, uuid.UUID], datetime | None]
 PrepareCall = Callable[[Session, uuid.UUID, uuid.UUID, uuid.UUID], uuid.UUID | None]
+Nudge = Callable[[Session, uuid.UUID, uuid.UUID, uuid.UUID, bool], bool]
 
 
 class EscalationWorker:
@@ -32,6 +36,8 @@ class EscalationWorker:
         cooldown_seconds: int = 3600,
         batch_size: int = 10,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        decisions: DecisionService | None = None,
+        nudge: Nudge | None = None,
     ) -> None:
         if (
             not 60 <= after_seconds <= 86400
@@ -47,6 +53,7 @@ class EscalationWorker:
         self.after = timedelta(seconds=after_seconds)
         self.cooldown = timedelta(seconds=cooldown_seconds)
         self.batch_size, self.now = batch_size, now
+        self.decisions, self.nudge = decisions, nudge
 
     def _seed(self, now: datetime) -> None:
         """Create bounded durable work without claiming it or mutating incident facts."""
@@ -108,6 +115,9 @@ class EscalationWorker:
         if sent_at + self.after > now:
             self._defer(job, "acknowledgement_grace", sent_at + self.after)
             return "deferred"
+        if self.decisions is not None and job.advised_at is None:
+            if self._advise(session, job, incident, sent_at, now):
+                return "deferred"
 
         lock = int.from_bytes(
             hashlib.sha256(
@@ -137,6 +147,49 @@ class EscalationWorker:
             return "deferred"
         job.state, job.call_id, job.prepared_at, job.reason = "prepared", call_id, now, None
         return "prepared"
+
+    def _advise(
+        self,
+        session: Session,
+        job: EscalationJob,
+        incident: Incident,
+        sent_at: datetime,
+        now: datetime,
+    ) -> bool:
+        """Ask both alert-time slots once; advice may delay one grace period, never hasten."""
+        minutes = int((now - sent_at).total_seconds() // 60)
+        state = (
+            f"CI workflow {incident.workflow_name or 'unknown'} failed "
+            f"{incident.failure_count} time(s) on branch {incident.head_branch or 'unknown'}. "
+            f"The owner alert was delivered {minutes} minutes ago and is unacknowledged."
+        )
+        category, step = self.decisions.decide(
+            session,
+            org_id=job.org_id,
+            state=state,
+            questions=[CI_FAILURE_CATEGORY, ESCALATION_STEP],
+            incident_id=incident.id,
+        )
+        job.advised_at = now
+        flaky = category.outcome is PolicyOutcome.ACT and category.decision.value == "flaky"
+        advice = step.decision.value if step.outcome is PolicyOutcome.ACT else "call_now"
+        if flaky:
+            action = "quiet_note_and_wait"
+        elif advice == "chat_nudge":
+            action = "chat_nudge_and_wait"
+        elif advice == "wait":
+            action = "wait"
+        else:
+            action = "escalation_continued"
+        for result in (category, step):
+            if result.record is not None:
+                result.record.action_taken = action
+        if action == "escalation_continued":
+            return False
+        if action != "wait" and self.nudge is not None:
+            self.nudge(session, job.org_id, job.principal_id, incident.id, flaky)
+        self._defer(job, "advised_" + ("flaky" if flaky else advice), now + self.after)
+        return True
 
     def run_once(self) -> dict[str, int]:
         """Prepare local intents only; no failures in one job escape to another."""

@@ -39,6 +39,7 @@ class PolicyDecision:
     decision: Decision
     outcome: PolicyOutcome
     fallback_reason: str | None
+    record: DecisionRecord | None = None
 
 
 class DecisionService:
@@ -80,22 +81,22 @@ class DecisionService:
                 # Fallback labels come from the raw text; it is never sent anywhere.
                 decision = self.fallback.answer(state, question)
             outcome = evaluate(decision, question, high=self.high, low=self.low)
-            session.add(
-                DecisionRecord(
-                    org_id=org_id,
-                    incident_id=incident_id,
-                    state_hash=state_hash,
-                    question=question.name,
-                    answer=decision.value,
-                    confidence=decision.confidence,
-                    probabilities=dict(decision.probabilities) or None,
-                    model_version=decision.model_version,
-                    source=decision.source.value,
-                    fallback_reason=reason,
-                    policy_outcome=outcome.value,
-                )
+            record = DecisionRecord(
+                id=uuid.uuid4(),
+                org_id=org_id,
+                incident_id=incident_id,
+                state_hash=state_hash,
+                question=question.name,
+                answer=decision.value,
+                confidence=decision.confidence,
+                probabilities=dict(decision.probabilities) or None,
+                model_version=decision.model_version,
+                source=decision.source.value,
+                fallback_reason=reason,
+                policy_outcome=outcome.value,
             )
-            results.append(PolicyDecision(decision, outcome, reason))
+            session.add(record)
+            results.append(PolicyDecision(decision, outcome, reason, record))
         session.flush()
         return results
 

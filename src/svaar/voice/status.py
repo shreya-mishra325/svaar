@@ -47,6 +47,7 @@ def ingest_status(
     body: StatusPayload,
     raw: bytes,
     notify_failure: FailureNotifier | None = None,
+    notify_requester: FailureNotifier | None = None,
 ) -> str:
     """Serialize receipts on the known call, atomically with lifecycle updates."""
     with sessions() as session:
@@ -76,6 +77,16 @@ def ingest_status(
             # One transaction: a failed enqueue rolls back the receipt for safe redelivery.
             # False means no unambiguous verified private route; never invent a recipient.
             notify_failure(session, call.org_id, call.principal_id, call.id)
+        requester = call.requested_by
+        if (
+            applied
+            and body.status in FAILED_CALL_STATUSES
+            and notify_requester is not None
+            and requester is not None
+            and requester != call.principal_id
+        ):
+            # A claim_check requester learns the claim stays unverified, atomically.
+            notify_requester(session, call.org_id, requester, call.id)
         session.commit()
         return "recorded" if applied else "ignored"
 
@@ -118,6 +129,7 @@ async def voice_status(request: Request) -> dict[str, str]:
         payload,
         bytes(raw),
         request.app.state.voice_failure_notifier,
+        getattr(request.app.state, "voice_requester_notifier", None),
     )
     if result == "not_found":
         raise HTTPException(404)

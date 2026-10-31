@@ -53,6 +53,7 @@ DOMAIN_TABLES = (
     "ci_jobs",
     "escalation_jobs",
     "evidence",
+    "claim_answers",
     "claims",
     "workflow_log_signatures",
     "replay_runs",

@@ -1,6 +1,6 @@
 # Svaar phase checkpoints
 
-Last reviewed: 2026-10-28 (Asia/Calcutta).
+Last reviewed: 2026-10-31 (Asia/Calcutta).
 
 ## How to use this checklist
 
@@ -32,20 +32,20 @@ explicit authorization covering the action and target.
 
 ## Current position
 
-Latest implementation verification: **687 tests passed on 2026-10-28**, plus
+Latest implementation verification: **779 of 779 tests passed on 2026-10-31**, plus
 Ruff lint/format and alembic check against the isolated PostgreSQL test database.
 The database container is healthy. Both local databases are at revision
-0021 with clean drift checks; the merge graph was verified (A-020) and the
-latest test-only 0021 -> 0018 -> 0021 round trip passed. Compose validation passed. The existing Starlette warning is A-004.
+0026 with clean drift checks; the merge graph was verified (A-020) and the
+latest test-only 0026 -> 0025 -> 0026 round trip passed. Compose validation passed. The existing Starlette warning is A-004.
 
 | Phase | Implementation | Offline verification | Live acceptance |
 | --- | --- | --- | --- |
 | 0: Foundation | Complete | Passed | Required local startup verified |
 | 1: Contracts and safety | Safety core done; provider composition partial | Core and adapter mocks passed | Provider checks incomplete |
-| 2: Shared runtime | Chat/gateway/internal voice core done; external voice binding pending | Core and persistence checks passed | Complete chat/voice flow pending |
-| 3: Voice transport | Call/challenge/follow-up core and status receipts done; turn bridge pending | Implemented scope passed | Real verification call pending |
-| 4: CI and timeline | Ingress, leased log grouping, CI read tools, ownership and owner outbox implemented; manual creation pending | Ingress checks passed | Real incident/alert/timeline pending |
-| 5: Claims and escalation | Claim/workflow-evidence core and guarded intent jobs done; detection and live calls pending | Implemented core passed | Pending |
+| 2: Shared runtime | Chat/gateway/voice core and authenticated turn binding done | Core and persistence checks passed | Complete chat/voice flow pending |
+| 3: Voice transport | Calls, challenges, status receipts, turn route and operator dispatch done | Implemented scope passed | Real verification call pending |
+| 4: CI and timeline | Ingress, leased log grouping, CI read tools, ownership, owner outbox and manual creation implemented | Ingress checks passed | Real incident/alert/timeline pending |
+| 5: Claims and escalation | Claims, merge evidence, claim_check answers, detection, escalation advice and dispatch guards done; live dispatch and tuning pending | Passed | Pending |
 | 6: Resolution and confirmation | Standing constraints, agent negotiation and confirmed rerun/cancel implemented; dispatch pending | Implemented domain scope passed | Pending |
 | 7: Replay | Agent replay bound to accepted plan; tracked draft export/approval implemented | Isolation and approval tests passed | Required simulation demonstration pending |
 | 8: Rehearsal | Non-voice fixture and guide implemented | Mocked non-voice slice passed; full rehearsal pending | Calls, timing and recording pending |
@@ -64,9 +64,10 @@ The configured tunnel/webhook returned HTTP 401 initially, then HTTP 422 after
 configuration changes. Payload validation remains unresolved; do not mark
 callback processing, the conversation bridge or real-call acceptance complete.
 
-Next demo-critical build: explicit incident owner -> evidence-backed claims ->
-guarded escalation -> confirmed CI action. Timeline/grouping and private alerts
-already have tested implementations; their live acceptance remains incomplete.
+Next demo-critical step: live acceptance. Configure the Bolna agent for the turn route
+(README, Bolna voice turn route) and place one explicitly authorized call. Owner alerts, claims,
+claim_check answers, escalation preparation and confirmed CI actions are implemented
+offline; all of their live acceptance remains incomplete.
 The optional classifier is implemented but disabled by default until explicitly
 enabled and accepted live. Voice bridge/reference/retry wiring stays with the teammate. No separate stable sender-ID contract is required for
 Caspian under the approved MVP address policy (A-011).
@@ -118,8 +119,9 @@ Target: Oct 18 to 19. Prerequisite: Phase 0.
   implemented and composed behind an explicit opt-in switch (A-022).
 - [x] P0 usability/intent schemas and deterministic mission allowlists.
 - [x] Implemented feature settings: operator, LLM, Caspian, Bolna adapter and GitHub HMAC.
-- [ ] Remaining voice route credentials. Jev runtime settings were dropped with the
-  plan change on 2026-10-27 (A-022).
+- [x] Voice route credentials: SVAAR_VOICE_TURN_MODE and a separate 32+ character
+  SVAAR_VOICE_TURN_TOKEN, validated with the LLM settings. Jev runtime settings were
+  dropped with the plan change on 2026-10-27 (A-022).
 - [ ] Operator reconciliation path for uncertain external execution (A-006).
 - [ ] Close outstanding implementation-design decisions recorded in A-007.
 
@@ -168,7 +170,9 @@ Target: Oct 20 to 21. Prerequisites: identity/action gate and selected transport
 - [x] Heuristic-first speech precheck and at most one grouped classifier request
   per voice turn, bounded by the existing deadline, with per-slot fallback/audit.
 - [x] Gateway polling, persistent cursor, stream ownership, shutdown and heartbeat health.
-- [ ] External authenticated voice call-reference and retry-index mapping (A-013).
+- [x] Authenticated voice call-reference and retry-index mapping: the llm_endpoint
+  index is the count of earlier caller messages in replayed history (A-013, A-028).
+- [ ] Live verification that Bolna delivers the reference and stable history (A-028).
 - [ ] Voice confirmation ticket delivery and operator recovery tooling (A-006/A-013).
 - [ ] Bound/verify remaining synchronous provider handlers for the full voice budget (A-009).
 
@@ -215,18 +219,23 @@ Target: Oct 22 to 23. Prerequisite: shared runner and identity/action boundaries
 - [x] Failed/unanswered status receipts queue one verified private outbox follow-up
   per call, atomically with the receipt; absent/ambiguous routes queue nothing.
 - [x] Internal hashed call-reference resolver delegates to the guarded indexed runner.
-- [ ] Verify provider delivery of reference/retry identity and implement its authenticated turn route.
+- [x] Authenticated turn route: POST /voice/llm/chat/completions streams OpenAI deltas
+  (llm_endpoint) or POST /voice/turn (function); only the configured mode is mounted.
+- [ ] Verify provider delivery of reference/retry identity on a real call (A-028).
 - [x] Implement status receipt authentication, direct peer-IP checks and durable dedupe.
 - [x] Restricted Cloudflare loopback status listener with scoped edge-header checks.
 - [ ] Verify real Cloudflare ingress and implement operator balance alerts.
 - [ ] Match failed/no-answer/busy terminal call state to PLAN.md section 10 (A-021).
 - [ ] Classify completed transcripts, persist evidence and apply retention policy.
-- [ ] Wire account readiness, authorized call scheduling/limits and production placement.
+- [x] Explicit operator placement (python -m svaar.dispatch) with readiness, incident/claim
+  rechecks and per-recipient limits; nothing dials automatically.
+- [ ] Automatic call scheduling from prepared intents (not implemented by design yet).
 - [ ] Implement transcript retention and voice confirmation-ticket notification delivery.
 - [x] Implement a status-only tunnel entry point with operator/docs routes absent.
 - [x] User launched the restricted tunnel and configured the hosted status webhook.
 - [ ] Teammate handoff: resolve the dashboard sample HTTP 422 and verify accepted
-  callback processing against a stored Svaar execution (A-014).
+  callback processing against a stored Svaar execution (A-014). Likely cause: the
+  dashboard sample carries placeholder IDs; a real execution should validate (A-028).
 
 ### Offline verification
 
@@ -238,7 +247,8 @@ Target: Oct 22 to 23. Prerequisite: shared runner and identity/action boundaries
 - [x] Failure follow-up routing, dedupe, recipient revocation and missing-route cases pass.
 - [x] Status route authentication, peer-IP rejection, concurrent dedupe, replay/reordering
   and transaction rollback tests.
-- [ ] Provider turn-route authentication and transcript retention tests.
+- [x] Provider turn-route authentication, mounting, fail-closed reference and retry tests.
+- [ ] General per-turn transcript retention limit and tests (claim answers are purged).
 - [ ] Production call scheduler/readiness and notification timing tests.
 
 ### Live acceptance
@@ -282,7 +292,8 @@ Target: Oct 24 to 25. Prerequisites: scoped identity, chat delivery and incident
 - [x] Explicit same-org repository owner and per-incident owner snapshot (A-018).
 - [x] Idempotent private alerts to that owner only; no missing-owner broadcast fallback.
 - [ ] Configure a real owner and verify actual alert delivery.
-- [ ] Implement the planned operator POST /incidents manual-creation route.
+- [x] Operator POST /incidents manual-creation route: mapped repository, same-org owner,
+  automatic-grouping fingerprint, 409 on an active duplicate, owner alert queued.
 - [x] Signed observation -> guarded CI job -> incident -> owner outbox preparation,
   without automatic workflow reruns; real provider/delivery acceptance remains below.
 - [x] list_ci_runs/explain_ci_failure read scoped accepted observations and available
@@ -322,35 +333,51 @@ Target: Oct 26 to 27. Prerequisites: events, outbox and verified voice calls.
 
 - [ ] Phase complete.
 
-Claims and deterministic workflow evidence now have a tested initial core.
-Guarded local escalation preparation is implemented. Call verification and live
-automatic dialing remain pending (A-024).
+Claims, workflow and merge evidence, claim_check call answers and claim detection are
+implemented and verified offline. Guarded local escalation preparation is implemented.
+Live dialing and every live acceptance item remain pending (A-024, A-025).
 
 ### Implementation
 
 - [x] Scoped authored claims, source dedupe and deterministic exact workflow-success
   evidence lookup with append-only provenance.
 - [x] Dispatcher-owned recording/checking/listing and operator read-only claims route.
-- [ ] Dedicated automatic claim detection and merge-event evidence ingestion (A-023).
+- [x] Signed merged pull_request observations and exact fix_merged evidence: the claim's
+  pull request, the incident's repository and a merge no earlier than the incident (A-025).
+- [x] Optional audited claim-detection slot; a detection only suggests record_claim and
+  never records a claim or sets status (A-025).
 - [x] Incident acknowledgement action is registered through the dispatcher.
-- [ ] Implement claim_check/escalation handlers and guarded scheduling.
-- [ ] Classify usable final answers and derive status from persisted evidence.
-- [ ] Preserve unverified for missing evidence, unusable speech and failed calls.
+- [x] claim_check handlers: verify_claim prepares one bound pending intent for the claim
+  author (tier 2 when the author is not the incident owner); record_claim_answer is
+  offered only inside that call and stores the caller's exact words (A-025).
+- [x] Completed-call answers are classified once by the claim-answer slot; only a
+  confident model confirmed/denied becomes evidence, and status is derived from it.
+- [x] Missing evidence, unusable speech, fallback/low-confidence answers and failed or
+  unanswered calls stay unverified; answer text is purged once finalized. A failed
+  claim_check call also notifies its requester once (PLAN.md section 10).
 - [x] Guarded preparation jobs, row claiming, durable incident-bound intents,
   confirmed-delivery grace and per-recipient preparation cooldown (A-024).
-- [ ] Live dispatch readiness, final recipient/incident checks and actual call limits.
-- [ ] Independently validated CI category/adaptive escalation decisions and labelled audit.
-- [ ] Use batching only if the actual gateway contract verifies support.
+- [x] Dispatch-time recheck of incident ownership/open state and claim status, a
+  readiness gate and a per-recipient 24-hour call limit, composed by
+  create_call_service (offline; A-027).
+- [ ] Live dispatch: placement is operator-run only (python -m svaar.dispatch --place);
+  live readiness, limits and placement remain unverified (A-024, A-027).
+- [x] CI failure category and adaptive escalation asked together once per job, each
+  validated and audited separately; advice can delay one grace period, never hasten.
+- [ ] Labelled evaluation set and threshold tuning for these slots (plan section 9).
+- [ ] Use batching only if the actual gateway contract verifies support. Not applicable
+  since the 2026-10-27 plan change removed that gateway (A-022); left unticked.
 
 ### Offline verification
 
 - [x] Initial workflow claim confirmation, absent/failed evidence, merge ambiguity,
   statement/target mismatches, dedupe, org isolation and immutable evidence tests pass.
-- [ ] Call-derived evidence transitions and automatic detection tests.
-- [ ] Wrong-person, unusable-answer and failed/unanswered-call cases remain unverified.
+- [x] Call-derived evidence transitions, merge evidence and automatic detection tests.
+- [x] Wrong-person, unsure, callback, fallback and failed/unanswered-call cases remain
+  unverified; failed calls discard answers without evidence.
 - [x] Concurrent preparation produces one intent; one failed job rolls back without
   stopping another recipient's job.
-- [ ] Timing, recipient authorization, call limits and per-question decision audit pass.
+- [x] Timing, recipient authorization, call limits and per-question decision audit pass.
 
 ### Live acceptance
 
@@ -1197,3 +1224,151 @@ detection, merge evidence, CI category/adaptive escalation and labelled evaluati
 manual incident creation, workflow dispatch and final rehearsal remain pending.
 Voice routes/runtime and the teammate's hosted Bolna wiring are untouched.
 No private .env edit, live messages/calls/provider mutations or Git mutations occurred.
+
+
+## 2026-10-31: claim_check calls, merge evidence and claim detection
+
+Branch feat/phase5-claims-escalation, based on feat/caspian-chat-runtime (Oct 28).
+Owner: not assigned in this document. Windows 11 development machine.
+
+- Migration 0022 binds claim_check calls to one claim (at most one open check per
+  claim), adds claim_answers and lets evidence cite an answer instead of an event.
+  Migration 0023 adds an optional pull_number target to fix_merged claims.
+- verify_claim (lead/admin, chat) rechecks evidence and prepares a pending intent for
+  the claim author with exactly one verified phone; nothing is dialed. CallService
+  refuses claim_check intents unless a composed guard confirms the claim is still
+  unverified and the recipient is its author.
+- record_claim_answer is offered only in a bound claim_check call; AgentLoop replaces
+  model arguments with the caller's exact words. The call prompt quotes the claim as data.
+- ClaimAnswerWorker (gateway, SVAAR_CLAIM_CHECK_JOBS_ENABLED, default false) waits for
+  the call receipt. Completed calls get one audited claim_answer decision; only a
+  model answer at or above the high threshold maps confirmed/denied to
+  supports/contradicts. Failed/unanswered calls discard answers. Text is purged.
+- pull_request webhooks closed with merged=true become append-only observations that
+  never open incidents. merge-event-v1 supports a narrow positive merge statement only
+  for the claim's pull request, in the incident's repository, merged at or after the
+  incident opened.
+- claim_detection runs only when the classifier is enabled and a status word appears;
+  a confident detection adds a prompt hint to use record_claim.
+
+Verification: 725 passed, 1 failed, 4 errors (728 tests); the failures are the
+Windows-only cases in A-026, which do not occur on Linux CI/macOS. Ruff format/lint
+passed. Test-only round trips 0022 -> 0021 -> 0022 and 0023 -> 0022 -> 0023 and
+alembic check on both databases passed. No live provider requests, calls, messages
+or classifier requests were made; all model, classifier and voice providers are fakes.
+
+
+## 2026-10-31: escalation advice and dispatch-time guards
+
+- Questions ci_failure_category and escalation_step are asked in one classifier request
+  once the acknowledgement grace has elapsed, at most once per job (migration 0024,
+  escalation_jobs.advised_at). Each answer has its own audit row and action_taken.
+  A confident flaky category sends one quiet private note; a confident chat_nudge sends
+  one reminder; either, or a confident wait, defers preparation by one grace period.
+  Fallback, low-confidence and call_now keep the deterministic schedule. Advice never
+  runs before the grace and cannot make a call sooner. The gateway passes decisions
+  only when the classifier is enabled.
+- CallService rechecks escalation intents against the open, unacknowledged incident and
+  its owner, and claim_check intents against the unverified claim and its author. It
+  refuses to dial when an optional readiness probe fails or raises, and caps placements
+  per recipient at SVAAR_VOICE_DAILY_CALL_LIMIT (default 3) in any 24 hours, under a
+  per-recipient advisory lock. Migration 0025 adds voice_calls.placed_at.
+- create_call_service composes all of these guards. It is not yet invoked by any route,
+  job or model tool.
+
+Verification: 736 of 739 tests passed; the remainder are the Windows-only cases
+in A-026. Ruff format/lint passed. Test-only round trip 0025 -> 0023 -> 0025 and alembic
+check on both databases passed. No live provider requests, calls, messages or
+classifier requests were made.
+
+
+## 2026-10-31: Windows test failures fixed
+
+- incidents/fingerprints.py now rejects backslash archive member names using
+  ZipInfo.orig_filename. On Windows, zipfile rewrites backslashes to "/" when reading,
+  so the previous check never fired there; Linux behaviour is unchanged.
+- agent/loop.py treats a classifier turn-deadline expiry in the voice gate as a timed
+  out turn. Timer waits can return a few milliseconds early on Windows, which turned
+  the fixed unavailable fallback into a clarification request.
+- Tests: short explicit IDs for parametrized cases whose generated IDs exceeded the
+  Windows environment-variable limit, a raw-name helper for the backslash archive, and
+  float tolerance on the 0.1 second budget assertion.
+- Local only: the git-ignored .env now uses 127.0.0.1. On this Windows machine localhost
+  resolved to IPv6 first and each new connection took 10 seconds, which broke a 5 second
+  concurrency barrier in test_log_enrichment and slowed the suite.
+
+Verification: 739 passed, 0 failed (full suite, 4 min 53 s); Ruff format/lint passed.
+
+
+## 2026-10-31: Phase 5 plan-gap closure
+
+A requirements review against PLAN.md sections 10 and 17 found three gaps, now closed:
+
+- Section 10: a failed claim_check call (no-answer, busy, failed, canceled, stopped,
+  error) now tells the requester. Migration 0026 adds voice_calls.requested_by;
+  verify_claim records the requesting principal. The status receipt queues one private
+  "claim stays unverified" notice to the requester, keyed per call and atomic with the
+  receipt, in addition to the existing notice to the person called.
+- Section 17, grouped decisions: a test proves a malformed CI category answer falls back
+  and is audited as invalid while the valid escalation answer in the same request is
+  kept and applied.
+- Section 17, CI classification and escalation: every allowed label of both slots
+  validates and invented labels do not.
+
+Verification: 752 of 752 tests passed; Ruff format/lint passed; test-only round
+trip 0026 -> 0025 -> 0026 and alembic check on both databases passed. No live provider
+requests, calls or messages were made.
+
+
+## 2026-10-31: operator manual incident creation (Phase 4)
+
+POST /api/v1/incidents (operator token) opens an incident for a repository explicitly
+mapped to the organization. The owner defaults to the mapping's owner and must belong
+to the organization; no role or name is guessed. The incident uses the automatic
+grouping fingerprint (organization, repository, workflow, branch), so a later CI
+failure joins it, and an active duplicate returns 409 under the same advisory lock.
+No observed event is fabricated; the timeline stays empty until CI facts arrive. The
+owner alert is queued atomically through the existing outbox; missing routes queue
+nothing. Verification: 758 of 758 tests passed; Ruff passed. No schema change.
+
+
+## 2026-10-31: Bolna voice turn route and operator dispatch
+
+Built on the user's instruction not to wait for the teammate. Contracts were read from
+Bolna's docs first: a custom LLM gets OpenAI chat completions at
+{base_url}/chat/completions with Bearer auth and must stream deltas ending in
+data: [DONE]; user_data keys fill {{variable}} prompt placeholders. Prompt delivery to
+the custom LLM, execution IDs in requests and retry behaviour are undocumented (A-028).
+
+- voice/turns.py mounts only the configured route. llm_endpoint: /voice/llm/models and
+  /voice/llm/chat/completions; the call reference is read from a svaar_call_ref marker
+  in the system message, the turn index from the count of earlier caller messages, and
+  the reply streams as a role chunk, a content chunk, a stop chunk and [DONE]. Missing
+  or ambiguous references, an empty utterance or a non-user final message get the fixed
+  refusal without running the agent. function: /voice/turn sequences arrivals.
+- Bearer SVAAR_VOICE_TURN_TOKEN, constant time, separate from all other credentials.
+- ReferencedTurnRunner activates a queued placed call on its first authenticated turn,
+  so a late or rejected in-progress callback cannot strand a live call.
+- The restricted Cloudflare listener also serves the configured turn route and starts
+  the shared agent only when a turn mode is set; docs, health and operator routes stay
+  absent there.
+- python -m svaar.dispatch lists pending intents and places or refreshes one named call
+  through create_call_service, after Bolna readiness. It never prints phone numbers.
+
+Verification: 778 of 778 tests passed; Ruff passed. No Bolna configuration was
+changed and no call, message or provider request was made. Live acceptance is pending.
+
+## 2026-10-31: Deterministic approval-set serialization
+
+CI on Linux failed test_resolution_tools intermittently: required_approvals was a
+frozenset, serialized in per-process string-hash order, so a stored negotiation snapshot
+could differ from its source constraints. The same order fed tier-2 confirmation hashes
+for proposals carrying approvals. Approval sets now serialize sorted; a regression test
+covers both models. Resolution tests passed under six PYTHONHASHSEED values.
+
+Separately observed once in a full local run and passing on rerun:
+test_ci_jobs::test_different_log_signatures_do_not_merge_failures. Suspected cause, not
+yet confirmed: the test freezes its clock about one second ahead, then ingests a second
+job, which a slow run can create after the frozen time. Test-only; not yet fixed.
+
+Verification: 779 of 779 tests passed; Ruff passed.

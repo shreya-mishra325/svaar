@@ -23,6 +23,16 @@ def archive(files, compression=zipfile.ZIP_STORED):
     return buffer.getvalue()
 
 
+def raw_name_archive(name, value):
+    """Keep a member name verbatim; ZipInfo turns backslashes into "/" on Windows."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as handle:
+        info = zipfile.ZipInfo("placeholder.txt")
+        info.filename = info.orig_filename = name
+        handle.writestr(info, value)
+    return buffer.getvalue()
+
+
 def test_normalized_timestamps_paths_and_pids_keep_error_identity():
     a = archive(
         [
@@ -72,12 +82,26 @@ def test_only_tail_lines_affect_digest_and_ansi_is_removed():
         archive([("a.txt", " \n ")]),
         archive([("../escape.txt", "private")]),
         archive([("/absolute.txt", "private")]),
-        archive([("dir\\escape.txt", "private")]),
+        raw_name_archive("dir\\escape.txt", "private"),
         archive([("a.exe", "private")]),
         archive([("a.txt", b"\xff\xfe")]),
         archive([(f"{i}.txt", "error") for i in range(101)]),
         archive([("bomb.txt", "x" * 100000)], compression=zipfile.ZIP_DEFLATED),
         b"x" * (MAX_ARCHIVE_BYTES + 1),
+    ],
+    # Short IDs: pytest stores the ID in an environment variable, capped on Windows.
+    ids=[
+        "not_zip",
+        "empty",
+        "blank_text",
+        "parent_escape",
+        "absolute",
+        "backslash",
+        "executable",
+        "non_text",
+        "too_many_files",
+        "compression_bomb",
+        "oversized",
     ],
 )
 def test_bad_or_oversized_logs_never_fabricate_signature(raw):

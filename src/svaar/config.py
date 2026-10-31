@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     escalation_after_seconds: int = Field(default=600, ge=60, le=86400)
     escalation_cooldown_seconds: int = Field(default=3600, ge=60, le=86400)
     escalation_batch_size: int = Field(default=10, ge=1, le=50)
+    # Optional local finalization of claim_check answers; never dials or sends.
+    claim_check_jobs_enabled: bool = False
+    # Dispatch-time cap on calls placed to one person in any 24 hours.
+    voice_daily_call_limit: int = Field(default=3, ge=1, le=20)
 
     channel_transport: Literal["caspian", "telegram"] | None = None
     gateway_poll_seconds: float = Field(default=2.0, ge=0.1, le=30.0)
@@ -58,6 +62,9 @@ class Settings(BaseSettings):
 
     # Optional Bolna adapter and independent status ingress; no automatic calls.
     voice_status_secret: SecretStr | None = None
+    # Authenticated Bolna turn route; only the selected mode's route is mounted.
+    voice_turn_mode: Literal["llm_endpoint", "function"] | None = None
+    voice_turn_token: SecretStr | None = None
     bolna_api_key: SecretStr | None = None
     bolna_agent_id: uuid.UUID | None = None
 
@@ -96,6 +103,8 @@ class Settings(BaseSettings):
 
     @field_validator(
         "voice_status_secret",
+        "voice_turn_mode",
+        "voice_turn_token",
         "operator_token",
         "github_app_id",
         "github_private_key_b64",
@@ -119,7 +128,9 @@ class Settings(BaseSettings):
             return None
         return value
 
-    @field_validator("operator_token", "github_webhook_secret", "voice_status_secret")
+    @field_validator(
+        "operator_token", "github_webhook_secret", "voice_status_secret", "voice_turn_token"
+    )
     @classmethod
     def validate_token_strength(cls, value: SecretStr | None) -> SecretStr | None:
         """Reject short bearer tokens that could be guessed."""
@@ -166,6 +177,17 @@ class Settings(BaseSettings):
         if (any(configured) or self.classifier_enabled) and not all(configured):
             raise ValueError(
                 "Set SVAAR_LLM_BASE_URL, SVAAR_LLM_API_KEY and SVAAR_LLM_MODEL together"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_voice_turn_configuration(self) -> Self:
+        """A turn route needs its own token and the shared agent's model settings."""
+        if self.voice_turn_mode is not None and (
+            self.voice_turn_token is None or self.llm_model is None
+        ):
+            raise ValueError(
+                "SVAAR_VOICE_TURN_MODE requires SVAAR_VOICE_TURN_TOKEN and the SVAAR_LLM_* settings"
             )
         return self
 

@@ -2,13 +2,22 @@
 
 Each constraint set belongs to one negotiating agent: release schedule, on-call
 staffing, or deploy and CI capacity. Times are timezone-aware; naive input is
-rejected so a window can never shift with the server's local clock.
+rejected so a window can never shift with the server's local clock. Approval sets
+serialize sorted, so snapshots and action hashes do not depend on string hashing.
 """
 
 from datetime import datetime, timedelta
 from enum import StrEnum
+from typing import Annotated
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    model_validator,
+)
 
 
 class Agent(StrEnum):
@@ -17,6 +26,9 @@ class Agent(StrEnum):
     RELEASE = "release"
     STAFFING = "staffing"
     CAPACITY = "capacity"
+
+
+Approvals = Annotated[frozenset[str], PlainSerializer(sorted, return_type=list[str])]
 
 
 class _Strict(BaseModel):
@@ -47,7 +59,7 @@ class Window(_Strict):
 class FreezeWindow(Window):
     """No changes may land unless every listed approval is present."""
 
-    required_approvals: frozenset[str] = Field(default_factory=frozenset)
+    required_approvals: Approvals = Field(default_factory=frozenset)
 
 
 class ReleaseSchedule(_Strict):
@@ -105,7 +117,7 @@ class Proposal(_Strict):
     start: AwareDatetime
     duration_minutes: int = Field(gt=0, le=24 * 60)
     engineer: str = Field(min_length=1, max_length=100)
-    approvals: frozenset[str] = Field(default_factory=frozenset)
+    approvals: Approvals = Field(default_factory=frozenset)
 
     @property
     def end(self) -> datetime:

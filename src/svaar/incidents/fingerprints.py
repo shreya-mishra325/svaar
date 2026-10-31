@@ -71,7 +71,8 @@ def signature_from_archive(raw: bytes) -> LogSignature:
                     path.is_absolute()
                     or bool(re.match(r"^[A-Za-z]:", entry.filename))
                     or ".." in path.parts
-                    or "\\" in entry.filename
+                    # orig_filename: zipfile rewrites backslashes to "/" on Windows.
+                    or "\\" in entry.orig_filename
                     or entry.filename in seen
                     or entry.flag_bits & 1
                     or stat.S_ISLNK(entry.external_attr >> 16)
