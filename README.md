@@ -996,3 +996,36 @@ does not establish live access. See [the non-voice rehearsal guide](docs/NONVOIC
 for the offline test command, operator routes, opt-in setup and remaining work.
 This update supersedes earlier standalone-only log/policy notes; their dated test
 counts remain historical. PLAN.md/CEREBRO_CONTEXT.md and the private .env are unchanged.
+
+
+### Claim verification calls
+
+A lead or admin can ask Svaar in chat to verify an unverified claim. verify_claim
+rechecks recorded evidence and prepares one pending claim_check call to the claim's
+author; it needs owner confirmation when the author is not the incident owner. Nothing
+is dialed automatically. During that call the only tool is record_claim_answer, which
+stores the caller's exact words.
+
+Set SVAAR_CLAIM_CHECK_JOBS_ENABLED=true and restart the gateway to finalize answers.
+After the provider reports the call completed, one audited claim_answer decision labels
+the answer. Only a confident model label of confirmed or denied becomes evidence;
+unsure, wrong person, callback, fallback and low-confidence answers stay unverified, and
+failed or unanswered calls discard the answer. Answer text is deleted once finalized.
+
+A fix_merged claim that names a pull request is confirmed by a signed pull_request
+merge event in the incident's repository, merged no earlier than the incident opened.
+Subscribe the GitHub webhook to pull_request events for this; unmerged closes are
+ignored. When the classifier is enabled, chat messages with status words get one
+claim_detection request; a detection only suggests record_claim.
+
+### Escalation advice and dispatch guards
+
+With the classifier and escalation jobs enabled, the gateway asks for a CI failure
+category and an escalation step once the acknowledgement grace has elapsed. A
+confident flaky, chat_nudge or wait answer sends at most one private note and delays
+the call once by one grace period; anything else keeps the deterministic schedule.
+
+create_call_service composes CallService with dispatch-time rechecks of the incident
+owner and claim author, an optional readiness probe and
+SVAAR_VOICE_DAILY_CALL_LIMIT (default 3) placements per person in any 24 hours.
+No route, job or model tool places calls yet.

@@ -98,4 +98,32 @@ CLAIM_DETECTION = Question(
 )
 
 P0_QUESTIONS = (VOICE_INTENT, TRANSCRIPT_USABILITY, CLAIM_ANSWER)
-P1_QUESTIONS = (CLAIM_DETECTION,)
+CI_FAILURE_CATEGORY = Question(
+    name="ci_failure_category",
+    labels=("flaky", "test", "dependency", "infra", "config", "unknown"),
+    criteria={
+        "flaky": "Intermittent failure likely to pass on retry without a code change",
+        "test": "A test assertion or test suite failure caused by the change",
+        "dependency": "A package, image or external dependency problem",
+        "infra": "Runner, network, quota or other infrastructure problem",
+        "config": "Workflow, secret or configuration error",
+        "unknown": "Not enough information to tell",
+    },
+    fallback="unknown",
+    reversible=True,
+)
+
+# Advice can only delay escalation once; deterministic timing and limits still apply.
+ESCALATION_STEP = Question(
+    name="escalation_step",
+    labels=("wait", "chat_nudge", "call_now"),
+    criteria={
+        "wait": "Waiting a little longer is reasonable before calling",
+        "chat_nudge": "A chat reminder should come before a call",
+        "call_now": "Calling the owner now is appropriate",
+    },
+    fallback="call_now",
+    reversible=True,
+)
+
+P1_QUESTIONS = (CLAIM_DETECTION, CI_FAILURE_CATEGORY, ESCALATION_STEP)

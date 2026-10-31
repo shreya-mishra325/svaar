@@ -5,8 +5,9 @@ import re
 import secrets
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -41,10 +42,15 @@ class CallService:
         | None = None,
         claim_check_authorized: Callable[[Session, uuid.UUID, uuid.UUID, uuid.UUID], bool]
         | None = None,
+        daily_limit: int | None = None,
+        ready: Callable[[], bool] | None = None,
     ) -> None:
+        if daily_limit is not None and not 1 <= daily_limit <= 20:
+            raise ValueError("Invalid per-recipient daily call limit")
         self.sessions, self.provider = sessions, provider
         self.escalation_authorized = escalation_authorized
         self.claim_check_authorized = claim_check_authorized
+        self.daily_limit, self.ready = daily_limit, ready
 
     def _phone(self, session: Session, call: VoiceCall) -> str | None:
         if call.mission == Mission.PHONE_VERIFY.value:
@@ -85,8 +91,38 @@ class CallService:
             return None
         return binding.address
 
+    def _limit_reached(self, session: Session, call: VoiceCall) -> bool:
+        """Count placements to this person in the last day under a per-recipient lock."""
+        if self.daily_limit is None:
+            return False
+        lock = int.from_bytes(
+            hashlib.sha256(f"voice-recipient:{call.org_id}:{call.principal_id}".encode()).digest()[
+                :8
+            ],
+            "big",
+            signed=True,
+        )
+        session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock})
+        placed = session.scalar(
+            select(func.count())
+            .select_from(VoiceCall)
+            .where(
+                VoiceCall.org_id == call.org_id,
+                VoiceCall.principal_id == call.principal_id,
+                VoiceCall.placed_at > datetime.now(UTC) - timedelta(days=1),
+            )
+        )
+        return placed >= self.daily_limit
+
     def place(self, org_id: uuid.UUID, call_id: uuid.UUID) -> str:
         """Claim a pending intent before network I/O; never retry an uncertain placement."""
+        if self.ready is not None:
+            try:
+                ready = self.ready()
+            except Exception:
+                ready = False
+            if not ready:
+                return "provider_not_ready"
         with self.sessions() as session:
             call = session.scalar(
                 select(VoiceCall)
@@ -104,10 +140,12 @@ class CallService:
             phone = self._phone(session, call)
             if phone is None:
                 return "not_authorized"
+            if self._limit_reached(session, call):
+                return "call_limit_reached"
             reference = secrets.token_urlsafe(32)
             call.call_ref_hash = hashlib.sha256(reference.encode()).hexdigest()
             call.provider_agent_id = self.provider.agent_id
-            call.state = "placing"
+            call.state, call.placed_at = "placing", datetime.now(UTC)
             session.commit()  # A crash from here onwards must not repeat a POST.
             try:
                 receipt = self.provider.place_call(phone, reference)

@@ -22,8 +22,8 @@ pytestmark = pytest.mark.postgres
 NOW = datetime.now(UTC)
 
 
-@pytest.fixture
-def scope(session_factory):
+def escalation_scope(session_factory):
+    """An owned open incident whose owner alert was delivered just over the grace ago."""
     with session_factory.begin() as session:
         org = make_org(session)
         owner = chat_route(session, org, Role.DEV, "escalation-owner")
@@ -44,6 +44,11 @@ def scope(session_factory):
         message.state = "sent"
         message.sent_at = NOW - timedelta(seconds=601)
     return org.id, owner, incident.id
+
+
+@pytest.fixture
+def scope(session_factory):
+    return escalation_scope(session_factory)
 
 
 def worker(sessions, **kwargs):

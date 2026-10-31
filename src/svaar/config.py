@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     escalation_batch_size: int = Field(default=10, ge=1, le=50)
     # Optional local finalization of claim_check answers; never dials or sends.
     claim_check_jobs_enabled: bool = False
+    # Dispatch-time cap on calls placed to one person in any 24 hours.
+    voice_daily_call_limit: int = Field(default=3, ge=1, le=20)
 
     channel_transport: Literal["caspian", "telegram"] | None = None
     gateway_poll_seconds: float = Field(default=2.0, ge=0.1, le=30.0)

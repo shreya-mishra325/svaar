@@ -42,6 +42,8 @@ class EscalationJob(Base):
     next_check_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     call_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("voice_calls.id"), unique=True)
     prepared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Set when alert-time advice was requested; advice is asked at most once per job.
+    advised_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

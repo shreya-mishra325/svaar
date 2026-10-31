@@ -173,3 +173,27 @@ def delivered_incident_alert_at(
             Conversation.principal_id == principal_id,
         )
     )
+
+
+def enqueue_escalation_nudge(
+    session: Session,
+    org_id: uuid.UUID,
+    principal_id: uuid.UUID,
+    incident_id: uuid.UUID,
+    flaky: bool,
+) -> bool:
+    """Queue one private reminder per incident before escalation continues."""
+    body = (
+        "This CI failure looks flaky, so I am waiting before any call. "
+        "Acknowledge the incident here if it is handled."
+        if flaky
+        else "Reminder: an incident still needs acknowledgement. Acknowledge it here, "
+        "otherwise escalation may continue by phone."
+    )
+    return enqueue_private_notification(
+        session,
+        org_id=org_id,
+        principal_id=principal_id,
+        key=f"escalation-nudge:{incident_id}",
+        body=body,
+    )

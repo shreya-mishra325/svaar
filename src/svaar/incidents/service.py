@@ -139,6 +139,21 @@ def get_incident(session: Session, org_id: uuid.UUID, incident_id: uuid.UUID) ->
     return incident
 
 
+def escalation_authorized(
+    session: Session, org_id: uuid.UUID, principal_id: uuid.UUID, incident_id: uuid.UUID
+) -> bool:
+    """Dispatch-time recheck: still open, unacknowledged and owned by the recipient."""
+    incident = session.scalars(
+        select(Incident).where(Incident.id == incident_id, Incident.org_id == org_id)
+    ).one_or_none()
+    return (
+        incident is not None
+        and incident.state == IncidentState.OPEN.value
+        and incident.owner_principal_id == principal_id
+        and get_principal(session, org_id, principal_id) is not None
+    )
+
+
 def list_incidents(
     session: Session, org_id: uuid.UUID, *, active_only: bool = True, limit: int = 10
 ) -> list[Incident]:

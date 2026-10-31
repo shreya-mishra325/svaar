@@ -24,7 +24,7 @@ from svaar.agent.caspian import CaspianTelegramTransport
 from svaar.agent.llm import HttpChatModel
 from svaar.agent.loop import AgentLoop
 from svaar.agent.models import GatewayCursor
-from svaar.agent.notifications import delivered_incident_alert_at
+from svaar.agent.notifications import delivered_incident_alert_at, enqueue_escalation_nudge
 from svaar.agent.runtime import ChatRuntime
 from svaar.agent.transport import TransportUnavailableError
 from svaar.agent.worker import GatewayWorker, stream_key
@@ -107,6 +107,8 @@ def _run(settings: Settings) -> int:
                 after_seconds=settings.escalation_after_seconds,
                 cooldown_seconds=settings.escalation_cooldown_seconds,
                 batch_size=settings.escalation_batch_size,
+                decisions=agent.decisions if agent.decisions.engine is not None else None,
+                nudge=enqueue_escalation_nudge,
             )
             if settings.escalation_jobs_enabled
             else None

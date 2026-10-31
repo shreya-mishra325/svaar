@@ -1,11 +1,11 @@
 """Application factory and lifecycle composition; feature logic belongs in modules."""
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
 
 from svaar.actions.catalog import build_registry
@@ -22,10 +22,17 @@ from svaar.config import Settings
 from svaar.db import create_database_engine
 from svaar.decisions.classifier import StructuredClassifier
 from svaar.decisions.service import DecisionService
+from svaar.incidents.claim_checks import claim_check_authorized
+from svaar.incidents.service import escalation_authorized
 from svaar.integrations.ci_actions import CiActionService
 from svaar.logging import configure_logging
-from svaar.voice.calls import prepare_claim_check_call, prepare_phone_verification_call
+from svaar.voice.calls import (
+    CallService,
+    prepare_claim_check_call,
+    prepare_phone_verification_call,
+)
 from svaar.voice.contracts import TurnRunner
+from svaar.voice.provider import VoiceProvider
 from svaar.voice.runtime import VoiceRuntime
 from svaar.voice.status import router as voice_status_router
 
@@ -143,3 +150,26 @@ def create_status_ingress(settings: Settings | None = None) -> FastAPI:
     if settings.voice_status_secret is None:
         raise ValueError("Configure a separate voice status secret before starting ingress")
     return create_app(settings, status_ingress=True)
+
+
+def create_call_service(
+    sessions: sessionmaker[Session],
+    provider: VoiceProvider,
+    settings: Settings,
+    *,
+    ready: Callable[[], bool] | None = None,
+) -> CallService:
+    """Compose every dispatch-time guard for live placement.
+
+    Escalation and claim checks are rechecked against current incident and claim
+    state, calls per recipient are capped and an optional readiness probe runs
+    first. No route, job or model tool invokes placement; callers stay explicit.
+    """
+    return CallService(
+        sessions,
+        provider,
+        escalation_authorized=escalation_authorized,
+        claim_check_authorized=claim_check_authorized,
+        daily_limit=settings.voice_daily_call_limit,
+        ready=ready,
+    )

@@ -32,12 +32,12 @@ explicit authorization covering the action and target.
 
 ## Current position
 
-Latest implementation verification: **725 of 728 tests passed on 2026-10-31** (the
+Latest implementation verification: **736 of 739 tests passed on 2026-10-31** (the
 three Windows-only cases are A-026), plus
 Ruff lint/format and alembic check against the isolated PostgreSQL test database.
 The database container is healthy. Both local databases are at revision
-0023 with clean drift checks; the merge graph was verified (A-020) and the
-latest test-only 0023 -> 0022 -> 0023 round trip passed. Compose validation passed. The existing Starlette warning is A-004.
+0025 with clean drift checks; the merge graph was verified (A-020) and the
+latest test-only 0025 -> 0023 -> 0025 round trip passed. Compose validation passed. The existing Starlette warning is A-004.
 
 | Phase | Implementation | Offline verification | Live acceptance |
 | --- | --- | --- | --- |
@@ -46,7 +46,7 @@ latest test-only 0023 -> 0022 -> 0023 round trip passed. Compose validation pass
 | 2: Shared runtime | Chat/gateway/internal voice core done; external voice binding pending | Core and persistence checks passed | Complete chat/voice flow pending |
 | 3: Voice transport | Call/challenge/follow-up core and status receipts done; turn bridge pending | Implemented scope passed | Real verification call pending |
 | 4: CI and timeline | Ingress, leased log grouping, CI read tools, ownership and owner outbox implemented; manual creation pending | Ingress checks passed | Real incident/alert/timeline pending |
-| 5: Claims and escalation | Claims, merge evidence, claim_check answers, detection and guarded intents done; CI category/escalation advice and dispatch limits in progress | Implemented scope passed | Pending |
+| 5: Claims and escalation | Claims, merge evidence, claim_check answers, detection, escalation advice and dispatch guards done; live dispatch and tuning pending | Passed | Pending |
 | 6: Resolution and confirmation | Standing constraints, agent negotiation and confirmed rerun/cancel implemented; dispatch pending | Implemented domain scope passed | Pending |
 | 7: Replay | Agent replay bound to accepted plan; tracked draft export/approval implemented | Isolation and approval tests passed | Required simulation demonstration pending |
 | 8: Rehearsal | Non-voice fixture and guide implemented | Mocked non-voice slice passed; full rehearsal pending | Calls, timing and recording pending |
@@ -65,9 +65,10 @@ The configured tunnel/webhook returned HTTP 401 initially, then HTTP 422 after
 configuration changes. Payload validation remains unresolved; do not mark
 callback processing, the conversation bridge or real-call acceptance complete.
 
-Next demo-critical build: explicit incident owner -> evidence-backed claims ->
-guarded escalation -> confirmed CI action. Timeline/grouping and private alerts
-already have tested implementations; their live acceptance remains incomplete.
+Next demo-critical build: the authenticated Bolna turn route (teammate, A-013/A-014),
+then compose create_call_service into an explicit dispatch path. Owner alerts, claims,
+claim_check answers, escalation preparation and confirmed CI actions are implemented
+offline; all of their live acceptance remains incomplete.
 The optional classifier is implemented but disabled by default until explicitly
 enabled and accepted live. Voice bridge/reference/retry wiring stays with the teammate. No separate stable sender-ID contract is required for
 Caspian under the approved MVP address policy (A-011).
@@ -346,8 +347,14 @@ Live dialing and every live acceptance item remain pending (A-024, A-025).
   unanswered calls stay unverified; answer text is purged once finalized.
 - [x] Guarded preparation jobs, row claiming, durable incident-bound intents,
   confirmed-delivery grace and per-recipient preparation cooldown (A-024).
-- [ ] Live dispatch readiness, final recipient/incident checks and actual call limits.
-- [ ] Independently validated CI category/adaptive escalation decisions and labelled audit.
+- [x] Dispatch-time recheck of incident ownership/open state and claim status, a
+  readiness gate and a per-recipient 24-hour call limit, composed by
+  create_call_service (offline; A-027).
+- [ ] Live dispatch: no route, job or tool invokes placement yet; live readiness,
+  limits and placement remain unverified (A-024, A-027).
+- [x] CI failure category and adaptive escalation asked together once per job, each
+  validated and audited separately; advice can delay one grace period, never hasten.
+- [ ] Labelled evaluation set and threshold tuning for these slots (plan section 9).
 - [ ] Use batching only if the actual gateway contract verifies support. Not applicable
   since the 2026-10-27 plan change removed that gateway (A-022); left unticked.
 
@@ -360,7 +367,7 @@ Live dialing and every live acceptance item remain pending (A-024, A-025).
   unverified; failed calls discard answers without evidence.
 - [x] Concurrent preparation produces one intent; one failed job rolls back without
   stopping another recipient's job.
-- [ ] Timing, recipient authorization, call limits and per-question decision audit pass.
+- [x] Timing, recipient authorization, call limits and per-question decision audit pass.
 
 ### Live acceptance
 
@@ -1239,3 +1246,27 @@ Windows-only cases in A-026, which do not occur on Linux CI/macOS. Ruff format/l
 passed. Test-only round trips 0022 -> 0021 -> 0022 and 0023 -> 0022 -> 0023 and
 alembic check on both databases passed. No live provider requests, calls, messages
 or classifier requests were made; all model, classifier and voice providers are fakes.
+
+
+## 2026-10-31: escalation advice and dispatch-time guards
+
+- Questions ci_failure_category and escalation_step are asked in one classifier request
+  once the acknowledgement grace has elapsed, at most once per job (migration 0024,
+  escalation_jobs.advised_at). Each answer has its own audit row and action_taken.
+  A confident flaky category sends one quiet private note; a confident chat_nudge sends
+  one reminder; either, or a confident wait, defers preparation by one grace period.
+  Fallback, low-confidence and call_now keep the deterministic schedule. Advice never
+  runs before the grace and cannot make a call sooner. The gateway passes decisions
+  only when the classifier is enabled.
+- CallService rechecks escalation intents against the open, unacknowledged incident and
+  its owner, and claim_check intents against the unverified claim and its author. It
+  refuses to dial when an optional readiness probe fails or raises, and caps placements
+  per recipient at SVAAR_VOICE_DAILY_CALL_LIMIT (default 3) in any 24 hours, under a
+  per-recipient advisory lock. Migration 0025 adds voice_calls.placed_at.
+- create_call_service composes all of these guards. It is not yet invoked by any route,
+  job or model tool.
+
+Verification: 736 of 739 tests passed; the remainder are the Windows-only cases
+in A-026. Ruff format/lint passed. Test-only round trip 0025 -> 0023 -> 0025 and alembic
+check on both databases passed. No live provider requests, calls, messages or
+classifier requests were made.

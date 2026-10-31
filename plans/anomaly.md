@@ -844,7 +844,8 @@ was performed.
   still needs incident/owner authorization rechecked at actual dispatch.
 - Remaining: compose authorized dispatch with account readiness, actual call limits,
   final recipient/incident checks, uncertain-placement reconciliation and live
-  acceptance. A preparation cooldown is not proof of provider call timing.
+  acceptance. Update 2026-10-31: guards, readiness and limits are implemented in
+  CallService/create_call_service (A-027); dispatch wiring and live acceptance remain. A preparation cooldown is not proof of provider call timing.
   The existing teammate-owned Bolna wiring remains pending.
 - Evidence: 639 tests passed without skips; independent rollback, concurrency,
   delivery grace, acknowledgement, phone retry, cooldown, default dialing refusal
@@ -946,3 +947,19 @@ The teammate's voice wiring remains separate and unchanged.
 - Next action: add explicit ids= to the large parametrizations and build the backslash
   member with a raw ZipInfo. No production code defect was found.
 - Owner: Unassigned.
+
+
+## A-027: escalation advice and dispatch guard choices
+
+- Added 2026-10-31. Implemented and verified offline only; team review requested.
+- The CI failure category is asked at escalation time, after the owner alert was
+  delivered, not at alert creation. A flaky result therefore cannot quieten the first
+  alert; it sends a quiet note and delays the call once instead.
+- Advice is asked at most once per escalation job and can only delay by one grace
+  period. explain_ci_failure does not yet show the category.
+- The daily limit counts placements claimed in the last 24 hours, including failed and
+  unknown ones, per organization and recipient. Bolna's own concurrency is separate.
+- Readiness is an injected probe; a live caller would pass BolnaClient.readiness. No
+  production dispatch path exists, so these guards are not live-verified.
+- Thresholds remain placeholders until a labelled evaluation set exists.
+- Owner: Team review; no individual assigned.
