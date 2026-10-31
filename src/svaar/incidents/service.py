@@ -68,6 +68,7 @@ def group_observation(
     event: ObservedEvent,
     *,
     owner_principal_id: uuid.UUID | None = None,
+    failure_key: str | None = None,
 ) -> GroupingResult | None:
     """Attach a newly recorded workflow observation to an incident, opening one on failure.
 
@@ -77,7 +78,7 @@ def group_observation(
     """
     if event.source != "github" or not event.kind.startswith("workflow_run."):
         return None
-    key = fingerprint(event.org_id, event.repository_id, event.data)
+    key = failure_key or fingerprint(event.org_id, event.repository_id, event.data)
     lock = int.from_bytes(
         hashlib.sha256(f"incident:{key}".encode()).digest()[:8], "big", signed=True
     )

@@ -22,6 +22,7 @@ from svaar.config import Settings
 from svaar.db import create_database_engine
 from svaar.decisions.classifier import StructuredClassifier
 from svaar.decisions.service import DecisionService
+from svaar.integrations.ci_actions import CiActionService
 from svaar.logging import configure_logging
 from svaar.voice.calls import prepare_phone_verification_call
 from svaar.voice.contracts import TurnRunner
@@ -47,7 +48,16 @@ def create_app(settings: Settings | None = None, *, status_ingress: bool = False
         try:
             if settings.llm_model is not None and not status_ingress:
                 model = HttpChatModel.from_settings(settings)
-                dispatcher = Dispatcher(build_registry(), ApprovalPolicy.from_settings(settings))
+                dispatcher = Dispatcher(
+                    build_registry(
+                        ci_actions=CiActionService.from_settings(
+                            app.state.session_factory, settings
+                        ).execute
+                        if settings.github_actions_enabled
+                        else None
+                    ),
+                    ApprovalPolicy.from_settings(settings),
+                )
                 loop = AgentLoop(
                     model,
                     dispatcher,

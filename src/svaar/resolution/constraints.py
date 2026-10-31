@@ -53,7 +53,7 @@ class FreezeWindow(Window):
 class ReleaseSchedule(_Strict):
     """Release agent: freeze windows and the approvals that lift them."""
 
-    freezes: tuple[FreezeWindow, ...] = ()
+    freezes: tuple[FreezeWindow, ...] = Field(default=(), max_length=64)
 
 
 class Shift(Window):
@@ -70,7 +70,7 @@ class OnCallStaffing(_Strict):
     engineer's continuous on-call time up to the end of the change.
     """
 
-    shifts: tuple[Shift, ...] = ()
+    shifts: tuple[Shift, ...] = Field(default=(), max_length=128)
     min_coverage: int = Field(default=1, ge=0, le=50)
     max_consecutive_hours: float = Field(default=12, gt=0, le=72)
 
@@ -85,7 +85,7 @@ class DeployCapacity(_Strict):
     """Capacity agent: concurrent deploy slots and environment maintenance."""
 
     max_concurrent_deploys: int = Field(default=1, ge=1, le=50)
-    scheduled: tuple[Deploy, ...] = ()
+    scheduled: tuple[Deploy, ...] = Field(default=(), max_length=128)
     unavailable: dict[str, tuple[Window, ...]] = Field(default_factory=dict)
 
 

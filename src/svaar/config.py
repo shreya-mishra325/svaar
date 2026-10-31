@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     bolna_agent_id: uuid.UUID | None = None
 
     # Independent inbound HMAC and optional standalone GitHub App read adapter.
+    github_actions_enabled: bool = False
+    github_enrichment_enabled: bool = False
+    ci_poll_seconds: float = Field(default=5.0, ge=1.0, le=60.0)
+    ci_batch_size: int = Field(default=5, ge=1, le=20)
     github_webhook_secret: SecretStr | None = None
     github_app_id: int | None = Field(default=None, gt=0)
     github_private_key_b64: SecretStr | None = None

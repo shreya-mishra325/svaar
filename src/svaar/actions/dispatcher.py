@@ -9,6 +9,7 @@ also commits internally, so its ``started`` record is durable before any
 provider effect can happen.
 """
 
+import json
 import logging
 import uuid
 from collections.abc import Mapping
@@ -78,6 +79,7 @@ class ConfirmationTicket:
     principal_id: uuid.UUID
     action: str
     nonce: str
+    summary: str | None = None
 
 
 @dataclass(frozen=True)
@@ -185,6 +187,7 @@ class Dispatcher:
                 principal_id=context.principal_id,
                 action=name,
                 nonce=issued.nonce,
+                summary=f"{name}: {json.dumps(payload, sort_keys=True)}",
             )
             output = {
                 "status": "confirmation_required",
@@ -250,6 +253,7 @@ class Dispatcher:
             mission=None,
             correlation_id=context.correlation_id,
             deadline=context.deadline,
+            confirmation_id=confirmation.id,
         )
         principal = get_principal(session, confirmation.org_id, confirmation.principal_id)
         arguments: BaseModel | None = None

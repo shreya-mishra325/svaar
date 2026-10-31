@@ -1,6 +1,6 @@
 # Svaar phase checkpoints
 
-Last reviewed: 2026-10-27 (Asia/Calcutta).
+Last reviewed: 2026-10-28 (Asia/Calcutta).
 
 ## How to use this checklist
 
@@ -32,11 +32,11 @@ explicit authorization covering the action and target.
 
 ## Current position
 
-Latest implementation verification: **639 tests passed on 2026-10-27**, plus
+Latest implementation verification: **687 tests passed on 2026-10-28**, plus
 Ruff lint/format and alembic check against the isolated PostgreSQL test database.
 The database container is healthy. Both local databases are at revision
-0018 with clean drift checks; the merge graph was verified (A-020) and the
-latest test-only 0018 -> 0017 -> 0018 round trip passed. Compose validation passed. The existing Starlette warning is A-004.
+0021 with clean drift checks; the merge graph was verified (A-020) and the
+latest test-only 0021 -> 0018 -> 0021 round trip passed. Compose validation passed. The existing Starlette warning is A-004.
 
 | Phase | Implementation | Offline verification | Live acceptance |
 | --- | --- | --- | --- |
@@ -44,11 +44,11 @@ latest test-only 0018 -> 0017 -> 0018 round trip passed. Compose validation pass
 | 1: Contracts and safety | Safety core done; provider composition partial | Core and adapter mocks passed | Provider checks incomplete |
 | 2: Shared runtime | Chat/gateway/internal voice core done; external voice binding pending | Core and persistence checks passed | Complete chat/voice flow pending |
 | 3: Voice transport | Call/challenge/follow-up core and status receipts done; turn bridge pending | Implemented scope passed | Real verification call pending |
-| 4: CI and timeline | Ingress, timeline/actions, explicit ownership and private owner alerts done; runtime log grouping pending | Ingress checks passed | Real incident/alert/timeline pending |
+| 4: CI and timeline | Ingress, leased log grouping, CI read tools, ownership and owner outbox implemented; manual creation pending | Ingress checks passed | Real incident/alert/timeline pending |
 | 5: Claims and escalation | Claim/workflow-evidence core and guarded intent jobs done; detection and live calls pending | Implemented core passed | Pending |
-| 6: Resolution and confirmation | Deterministic constraints, negotiations and validator routes done; risky CI flow pending | Pending for domain flow | Pending |
-| 7: Replay | Isolated operator-supplied simulation implemented | Isolation tests passed | Required simulation demonstration pending |
-| 8: Rehearsal | Not started | Full scenario rehearsal pending | Calls, timing and recording pending |
+| 6: Resolution and confirmation | Standing constraints, agent negotiation and confirmed rerun/cancel implemented; dispatch pending | Implemented domain scope passed | Pending |
+| 7: Replay | Agent replay bound to accepted plan; tracked draft export/approval implemented | Isolation and approval tests passed | Required simulation demonstration pending |
+| 8: Rehearsal | Non-voice fixture and guide implemented | Mocked non-voice slice passed; full rehearsal pending | Calls, timing and recording pending |
 | 9: Submission | Not started | Final review pending | Team submission pending |
 
 Configuration note, 2026-10-24: the user reports adding SVAAR_BOLNA_API_KEY.
@@ -268,21 +268,25 @@ Target: Oct 24 to 25. Prerequisites: scoped identity, chat delivery and incident
 - [x] Atomic normalized workflow observations/receipts with stable run-transition keys.
 - [x] Append-only observations with source provenance and occurrence timestamps.
 - [x] Standalone GitHub App RS256/token adapter and scoped repository/run reads.
-- [ ] Compose the App client into runtime with bounded lifecycle/deadlines.
+- [x] Compose the App client into the opt-in CI worker with bounded adapter lifecycle;
+  confirmed rerun/cancel use a separate writer and execution deadlines (A-027).
 - [x] Standalone failed-workflow log download with credential-isolated storage request
   and bounded in-memory ZIP processing.
 - [x] Incident aggregate/linkage and repository/workflow/branch grouping.
 - [x] Versioned normalized log-tail signatures and org/repo/workflow/branch fingerprint helper.
 - [x] Explicit attempt-bound enrichment with append-only digest/provenance storage
   and provider I/O outside database transactions.
-- [ ] Compose enrichment into guarded runtime work and wire log-based grouping
-  without rewriting observed history.
+- [x] Opt-in leased CI enrichment and log-based grouping without rewriting observed
+  facts or existing membership; bounded retry/coarse fallback (A-026).
 - [x] Organization-scoped ordered timeline and get_timeline/list_incidents actions.
 - [x] Explicit same-org repository owner and per-incident owner snapshot (A-018).
 - [x] Idempotent private alerts to that owner only; no missing-owner broadcast fallback.
 - [ ] Configure a real owner and verify actual alert delivery.
 - [ ] Implement the planned operator POST /incidents manual-creation route.
-- [ ] Complete the incident pipeline without automatic workflow reruns.
+- [x] Signed observation -> guarded CI job -> incident -> owner outbox preparation,
+  without automatic workflow reruns; real provider/delivery acceptance remains below.
+- [x] list_ci_runs/explain_ci_failure read scoped accepted observations and available
+  log provenance; root cause/category remain unknown.
 
 ### Offline verification
 
@@ -297,7 +301,8 @@ Target: Oct 24 to 25. Prerequisites: scoped identity, chat delivery and incident
 - [x] Implemented grouping/linkage, occurrence-order and scoped timeline/action tests.
 - [x] Explicit owner routing, scoped provisioning, backfill, atomic rollback and
   concurrency tests.
-- [ ] Runtime log-tail grouping tests.
+- [x] Runtime log grouping, distinct/repeated signatures, lease reclamation, stale
+  tokens, mapping changes, retries and atomic grouping/outbox rollback tests.
 - [ ] Workflow failure -> one incident -> one owner alert -> chat/voice timeline slice.
 
 ### Live acceptance
@@ -364,26 +369,32 @@ Target: Oct 28. Prerequisites: action gate, confirmations, claims and scoped ada
 
 - [ ] Phase complete.
 
-The confirmation/action gate remains reusable. Main adds deterministic negotiation
-and validation routes; this does not establish the real confirmed CI action flow.
+The agent uses saved constraints for negotiation and isolated replay. Confirmed
+rerun/cancel and tracked draft approval pass offline domain tests; real cross-channel
+CI acceptance and workflow dispatch remain pending.
 
 ### Implementation
 
 - [x] Request-supplied release-freeze, staffing and deploy/CI constraints (A-019).
 - [x] Bounded deterministic revisions, persisted rounds and operator validation routes.
-- [ ] Implement the planned standing constraints store or obtain an explicit plan
-  change approving request-scoped snapshots (A-019).
-- [ ] Wire start_negotiation through the agent with trusted constraints.
+- [x] Standing per-agent constraints store with atomic operator updates, revision
+  conflict checks and historical negotiation snapshots (A-019).
+- [x] start_negotiation uses operator-saved constraints and refuses invented approvals.
 - [ ] Confirmation-call domain flow with exact owner/channel/nonce/expiry checks.
-- [ ] Gated CI action with durable outcomes and no blind risky retry.
+- [x] Opt-in tier-2 rerun_workflow/cancel_run with durable attempt-level intent,
+  receipt recording, scope/role rechecks and no blind risky retry (A-027).
+- [ ] dispatch_workflow tool and adapter.
 - [ ] Optional: Jira read/create adapter, creation gated as tier 2.
 - Removed by plan change on 2026-10-27: optional Jev proposal pre-screening (A-022).
 
 ### Offline verification
 
 - [x] Reject invalid proposals and accept a valid revision in offline tests.
-- [ ] Domain CI action waits for valid owner confirmation and runs once concurrently.
-- [ ] Provider rejection/unknown outcomes require safe reconciliation (A-006).
+- [x] Mocked CI mutation waits for valid owner confirmation; duplicate/concurrent
+  confirmations and new nonces cannot repeat the same target attempt.
+- [x] Rejection, timeout and crash states persist; no uncertain mutation is retried.
+  Operator receipt inspection is implemented (A-006/A-027).
+- [ ] Live reconciliation acceptance and reviewed reconciliation/reset tooling.
 - [ ] Optional implemented integrations have scoped adapter/action tests.
 
 ### Live acceptance
@@ -407,14 +418,17 @@ Target: Oct 29. Prerequisite: timeline and validator-approved proposal.
 - [x] Operator-supplied corrected pipeline scenario replayed in isolated state.
 - [x] Pure in-memory replay with persisted explicitly simulated results.
 - [x] Replay isolation and simulated-only database constraint implemented.
-- [ ] Optional: exception draft export with tier-2 approval.
+- [x] Optional tracked JSON exception draft export with owner-bound tier-2 approval;
+  approval changes a local document only and never waives hard constraints.
 
 ### Offline verification
 
 - [x] Corrected operator-supplied sequence produces labelled simulation in tests.
-- [ ] Connect replay to the validator-approved proposal in the end-to-end flow.
+- [x] Agent replay requires the same incident's current validator-accepted plan;
+  the offline non-voice rehearsal exercises the connection.
 - [x] Replay isolation tests reject observed writes/live provider access for current scope.
-- [ ] Optional draft export honors owner confirmation and scope.
+- [x] Draft export/approval tests cover owner/channel/nonce, role revocation, foreign
+  scope, policy changes and immutable draft content.
 
 ### Live acceptance
 
@@ -434,7 +448,8 @@ Target: Oct 30. Prerequisite: required incident, claims, decision and voice loop
 ### Implementation
 
 - [ ] Complete the alert/call/timeline/claim/negotiation/replay/confirmed-action demo path.
-- [ ] Prepare reproducible demo data, run instructions and recording script.
+- [x] Reproducible non-voice fixture and run guide in docs/NONVOICE_REHEARSAL.md.
+- [ ] Real demo data, integrated run instructions and recording script.
 - [ ] Instrument timing and audit display; record units and optional cuts honestly.
 
 ### Offline verification
@@ -1146,3 +1161,39 @@ refuses these incident-bound intents without an injected authorization guard.
 Live dispatch/readiness, final incident checks and delivery remain pending with
 the teammate's voice wiring (A-024). This does not complete claim_check, automatic
 claim detection, call-derived evidence or the phase's live acceptance criteria.
+
+## 2026-10-28: non-voice investigation, resolution, replay and confirmed CI actions
+
+Verified: 687 tests passed without skips; Ruff lint/format, Compose (ci/gateway),
+git diff --check and both database drift checks passed. Test-only round trip:
+0021 -> 0018 -> 0021. Development upgraded to 0021. The first migration-check
+attempt met a stopped database; after restarting the existing container all
+checks passed. The existing Starlette warning remains A-004.
+
+- 0019: operator-owned standing constraints, coherent revisions, negotiation
+  snapshot revision, immutable tracked drafts and accepted-plan replay linkage.
+  start_negotiation, request_replay and approve_exception use the action gate.
+- 0020: one leased CI job per signed observation. Provider reads use the existing
+  adapter outside DB transactions. Matching hashes group failures; missing logs
+  retry before explicit coarse fallback. No observed facts or existing links
+  are rewritten. New read tools expose recorded CI facts, not live current state.
+- 0021: default-disabled confirmed rerun/cancel; durable placing/accepted/rejected/
+  unknown intent and exact-attempt business-key dedupe across fresh confirmations.
+  Read-only tokens remain read-only; a separate writer requests Actions write.
+  Owner outbox codes now include requested action/target review text.
+- The combined non-voice rehearsal uses fake readers and a simulated confirmation,
+  never live delivery, telephony, LLM inference or a GitHub mutation.
+
+Relevant new modules: resolution/policy.py, drafts.py, tools.py; replay/tools.py;
+jobs/ci.py and __main__.py; incidents/grouping.py; integrations/ci_tools.py,
+github_actions.py, ci_actions.py and ci_action_tools.py. Existing composition,
+models/routes, configuration, migrations and test cleanup were updated.
+No new dependency or broker was added. The CI worker is a process in the same
+application/image so slow downloads cannot block chat polling.
+
+A-019's missing store is resolved for implementation. A-026/A-027 record current
+CI integration limits. All live acceptance boxes stay open. Automatic claim
+detection, merge evidence, CI category/adaptive escalation and labelled evaluation,
+manual incident creation, workflow dispatch and final rehearsal remain pending.
+Voice routes/runtime and the teammate's hosted Bolna wiring are untouched.
+No private .env edit, live messages/calls/provider mutations or Git mutations occurred.

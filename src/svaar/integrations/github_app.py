@@ -178,6 +178,10 @@ class GithubAppClient:
         except (httpx.HTTPError, ValueError, RecursionError):
             raise GithubUnavailableError("GitHub request could not be verified") from None
 
+    def token_permissions(self) -> dict[str, str]:
+        """Keep all ordinary App clients read-only."""
+        return {"actions": "read", "metadata": "read"}
+
     def _access_token(self) -> str:
         with self._lock:
             now = self._now()
@@ -203,7 +207,7 @@ class GithubAppClient:
                         signed,
                         body={
                             "repository_ids": [self._repository_id],
-                            "permissions": {"actions": "read", "metadata": "read"},
+                            "permissions": self.token_permissions(),
                         },
                     )
                 )

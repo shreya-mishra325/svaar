@@ -288,7 +288,8 @@ class ChatRuntime:
                     session,
                     record_id,
                     index,
-                    f"Confirmation code: {ticket.nonce}. It expires shortly.",
+                    (f"Review action: {ticket.summary}. " if ticket.summary else "")
+                    + f"Confirmation code: {ticket.nonce}. It expires shortly.",
                 )
             record.state = "processed"
             session.commit()

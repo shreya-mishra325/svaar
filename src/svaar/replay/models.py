@@ -20,6 +20,7 @@ class ReplayRun(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id"), index=True)
     incident_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("incidents.id"), index=True)
+    negotiation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("negotiations.id"))
     kind: Mapped[str] = mapped_column(String(16), default="simulated")
     scenario: Mapped[dict[str, Any]] = mapped_column(JSONB)
     result: Mapped[dict[str, Any]] = mapped_column(JSONB)

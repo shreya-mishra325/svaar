@@ -16,6 +16,7 @@ from svaar.incidents.alerts import opened_alerts
 from svaar.incidents.models import Incident, ObservedEvent
 from svaar.incidents.service import group_observation
 from svaar.integrations.models import RepoMapping, WebhookDelivery
+from svaar.jobs.models import CiJob
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +148,8 @@ def ingest_delivery(
     delivery_id: uuid.UUID,
     event_type: str,
     raw: bytes,
+    *,
+    defer_grouping: bool = False,
 ) -> str:
     """Commit dedupe and observations together; no tools, model or provider requests.
 
@@ -210,11 +213,21 @@ def ingest_delivery(
             )
             session.add(observed)
             session.flush()
-            grouped = group_observation(
-                session, observed, owner_principal_id=mapping.owner_principal_id
-            )
-            if grouped is not None and grouped.opened:
-                queue_opened_alerts(session, grouped.incident)
+            if defer_grouping:
+                session.add(
+                    CiJob(
+                        event_id=observed.id,
+                        org_id=mapping.org_id,
+                        installation_id=mapping.installation_id,
+                        owner_principal_id=mapping.owner_principal_id,
+                    )
+                )
+            else:
+                grouped = group_observation(
+                    session, observed, owner_principal_id=mapping.owner_principal_id
+                )
+                if grouped is not None and grouped.opened:
+                    queue_opened_alerts(session, grouped.incident)
         receipt.state, receipt.reason = "accepted", None
         receipt.org_id, receipt.event_id = mapping.org_id, observed.id
         session.add(receipt)

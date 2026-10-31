@@ -849,3 +849,63 @@ was performed.
   delivery grace, acknowledgement, phone retry, cooldown, default dialing refusal
   and bound incident tool checks passed. Ruff, Compose, migration 0018 test round
   trip and local/test schema checks passed. No live effects or Git mutations.
+
+## A-025: standing policy and agent resolution implementation, 2026-10-28
+
+A-019's missing standing constraints store is resolved for implementation by
+migration 0019. Operator-only complete replacements are revision checked and
+serialized per organization. Agent negotiation cannot set constraints or add
+approval names. Snapshots remain reproducible; a policy change invalidates
+pending draft approval and replay until a fresh negotiation is accepted.
+
+Tracked JSON draft export/approval is local document handling, not a policy waiver
+or deployment. Draft content/completed approvals are immutable. Operator legacy
+request-scoped negotiations remain experimental and cannot enter the new trusted
+agent draft/replay path. Replay scenarios remain proposed inputs; simulated
+success cannot establish actual pipeline behavior or production recovery.
+Existing voice mission allowlists are preserved. request_replay declares voice
+support but no current voice mission permits it; do not count voice replay as live.
+
+## A-026: opt-in runtime log grouping and explicit coarse fallback, 2026-10-28
+
+Migration 0020 and python -m svaar.jobs compose the read-only App adapter into leased
+CI processing. Enabling webhook deferral without running the worker leaves jobs
+pending and delays alerts. Provider reads release DB transactions; source/mapping
+scope is rechecked before grouping and atomic outbox preparation. Old events and
+memberships are not rewritten or backfilled.
+
+Three failed log-read attempts use explicit repository/workflow/branch fallback,
+not an empty fabricated digest. This keeps alert preparation possible when logs
+are unavailable; it is not log-based diagnosis. Different valid signatures split
+incidents. Ambiguous successes remain observed without choosing among incidents
+and never prove resolution. Read tools use accepted webhook observations, not a
+live REST refresh. CI category/adaptive escalation classification remains missing.
+The worker is in the same application/image, with no new queue infrastructure.
+Its container startup has no heartbeat-based readiness claim. Live App/log and
+owner-delivery acceptance are still unverified.
+
+## A-027: confirmed CI mutation safety and remaining reconciliation, 2026-10-28
+
+Migration 0021 adds durable per-action/repository/run/attempt intents. The optional
+writer is disabled by default, separate from read-only clients, and available
+only through tier-2 rerun/cancel tools. The gate binds the exact nonce, owner and
+arguments. Execution rechecks scope/role/mapping/signed run evidence; the adapter
+checks current repository/run identity, attempt, SHA and status before one POST.
+
+An accepted HTTP response stores a bounded request ID and status. It proves
+acceptance only, not completion or recovery. Rejection/preflight failures stay
+rejected; timeout/ambiguous responses stay unknown, and crash windows leave
+placing. All states block a new nonce from repeating that business target.
+Receipt persistence failure is uncertain. Operator GET inspection exists by intent
+or confirmation ID. Automated/manual reset mutation tooling and live reconciliation
+acceptance remain pending (A-006); no records are automatically removed to retry.
+dispatch_workflow is unimplemented. Final authorization/provider mutation is not
+a distributed transaction; the intent records uncertainty rather than pretending
+that DB locking makes an external effect exactly once.
+
+Verification for A-025/A-026/A-027: 687 tests passed without skips, including mocked
+provider HTTP, concurrent confirmations, crash/unknown states, signature grouping,
+atomic alert rollback, policy revision conflicts, role/scope changes and combined
+non-voice rehearsal. Ruff/Compose and migration 0021 -> 0018 -> 0021 plus local/test
+drift checks passed. No live provider mutations, messages, calls or Git mutations.
+The teammate's voice wiring remains separate and unchanged.

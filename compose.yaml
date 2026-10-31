@@ -18,6 +18,9 @@ x-agent-environment: &agent-environment
   SVAAR_POLICY_LOW: ${SVAAR_POLICY_LOW:-0.55}
   SVAAR_LLM_BASE_URL: ${SVAAR_LLM_BASE_URL:-}
   SVAAR_LLM_API_KEY: ${SVAAR_LLM_API_KEY:-}
+  SVAAR_GITHUB_ACTIONS_ENABLED: ${SVAAR_GITHUB_ACTIONS_ENABLED:-false}
+  SVAAR_GITHUB_APP_ID: ${SVAAR_GITHUB_APP_ID:-}
+  SVAAR_GITHUB_PRIVATE_KEY_B64: ${SVAAR_GITHUB_PRIVATE_KEY_B64:-}
   SVAAR_CLASSIFIER_ENABLED: ${SVAAR_CLASSIFIER_ENABLED:-false}
   SVAAR_LLM_MODEL: ${SVAAR_LLM_MODEL:-}
 
@@ -56,6 +59,7 @@ services:
       SVAAR_INVITE_TTL_HOURS: ${SVAAR_INVITE_TTL_HOURS:-72}
       SVAAR_VOICE_STATUS_SECRET: ${SVAAR_VOICE_STATUS_SECRET:-}
       SVAAR_GITHUB_WEBHOOK_SECRET: ${SVAAR_GITHUB_WEBHOOK_SECRET:-}
+      SVAAR_GITHUB_ENRICHMENT_ENABLED: ${SVAAR_GITHUB_ENRICHMENT_ENABLED:-false}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -90,6 +94,27 @@ services:
       timeout: 5s
       start_period: 15s
       retries: 3
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+
+  # Same application/image, isolated process so log downloads cannot stall chat.
+  ci-worker:
+    <<: *application
+    profiles: ["ci"]
+    init: true
+    entrypoint: ["python", "-m", "svaar.jobs"]
+    command: []
+    environment:
+      <<: *infrastructure-environment
+      SVAAR_GITHUB_ENRICHMENT_ENABLED: ${SVAAR_GITHUB_ENRICHMENT_ENABLED:-false}
+      SVAAR_GITHUB_APP_ID: ${SVAAR_GITHUB_APP_ID:-}
+      SVAAR_GITHUB_PRIVATE_KEY_B64: ${SVAAR_GITHUB_PRIVATE_KEY_B64:-}
+      SVAAR_CI_BATCH_SIZE: ${SVAAR_CI_BATCH_SIZE:-5}
+      SVAAR_CI_POLL_SECONDS: ${SVAAR_CI_POLL_SECONDS:-5}
+    healthcheck:
+      disable: true
     depends_on:
       migrate:
         condition: service_completed_successfully

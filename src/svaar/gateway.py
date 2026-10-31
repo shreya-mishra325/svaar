@@ -32,6 +32,7 @@ from svaar.config import Settings
 from svaar.db import create_database_engine
 from svaar.decisions.classifier import StructuredClassifier
 from svaar.decisions.service import DecisionService
+from svaar.integrations.ci_actions import CiActionService
 from svaar.jobs.escalation import EscalationWorker
 from svaar.logging import configure_logging
 from svaar.voice.calls import prepare_escalation_call, prepare_phone_verification_call
@@ -57,7 +58,14 @@ def _run(settings: Settings) -> int:
         resources.callback(model.close)
         agent = AgentLoop(
             model,
-            Dispatcher(build_registry(), ApprovalPolicy.from_settings(settings)),
+            Dispatcher(
+                build_registry(
+                    ci_actions=CiActionService.from_settings(sessions, settings).execute
+                    if settings.github_actions_enabled
+                    else None
+                ),
+                ApprovalPolicy.from_settings(settings),
+            ),
             DecisionService.from_settings(
                 StructuredClassifier(model.classify, model_version=settings.llm_model)
                 if settings.classifier_enabled
