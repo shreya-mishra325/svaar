@@ -32,11 +32,20 @@ explicit authorization covering the action and target.
 
 ## Current position
 
-Latest implementation verification: **779 of 779 tests passed on 2026-10-31**, plus
-Ruff lint/format and alembic check against the isolated PostgreSQL test database.
-The database container is healthy. Both local databases are at revision
-0026 with clean drift checks; the merge graph was verified (A-020) and the
-latest test-only 0026 -> 0025 -> 0026 round trip passed. Compose validation passed. The existing Starlette warning is A-004.
+Latest deployment verification: **784 tests passed without skips on 2026-10-31**,
+using a new disposable PostgreSQL instance. Ruff lint/format, Docker image build
+and isolated demo Compose validation passed. The new svaar-demo database is at
+0026 with clean drift checks and verified volume persistence after restarting
+db/app/ingress. Those three private services are healthy; the API binds only
+127.0.0.1:18000. Existing development data was not modified. Earlier 779-test and
+development database checks remain historical evidence. Existing warning: A-004.
+
+Read-only provider checks passed: Caspian connection/poll, Bolna account/agent,
+and Groq native-tool inference (host and actual image). No messages or calls.
+Public tunnel, actual gateway processing/delivery, GitHub delivery and Bolna
+turn/status acceptance remain unverified. The named-tunnel target is superseded by the user's Render Free decision.
+A Free database in Singapore is user-reported; web-service publication, credentials
+and deployment approval are pending (A-030).
 
 | Phase | Implementation | Offline verification | Live acceptance |
 | --- | --- | --- | --- |
@@ -1372,3 +1381,63 @@ yet confirmed: the test freezes its clock about one second ahead, then ingests a
 job, which a slow run can create after the frozen time. Test-only; not yet fixed.
 
 Verification: 779 of 779 tests passed; Ruff passed.
+
+## 2026-10-31: isolated private demo deployment, public acceptance pending
+
+- Added compose.demo.yaml with a separate project/volume, fresh generated secrets,
+  no published PostgreSQL port and a private operator API at 127.0.0.1:18000.
+  Existing .env/development data are preserved. .env.demo is ignored, mode 0600,
+  generated exclusively and never printed.
+- Restricted ingress mounts provider routes/probes only and rejects non-loopback
+  peers. The prepared named Cloudflare sidecar shares its network namespace.
+  Existing status secret/IP checks and voice Bearer/HMAC gates remain unchanged.
+  Named tunnel is necessary because Quick Tunnels lack SSE (A-029).
+- Image built successfully; app/db/ingress started and are healthy. Migrations
+  through 0026 and schema drift checks passed before/after an isolated restart.
+  A temporary probe survived restart and was then removed. No development tables
+  or volumes were modified.
+- CI worker now has an atomic, bounded process-local heartbeat and --status.
+  Empty-queue lifecycle/start/restart passed with synthetic App credentials in
+  the disposable test environment, then that worker stopped. Live CI worker
+  remains stopped because App credentials are missing.
+- Full suite: 784 passed, no skips; Ruff and Compose validation passed. The suite
+  includes non-voice rehearsal. Existing Starlette warning remains A-004.
+- Groq native tools: host 3 requests / 0.3857 seconds median full-response;
+  actual image 3 requests / 0.602 seconds. Caspian GET checks passed with zero
+  sends. Bolna GET checks passed with zero calls, turn delivery unverified.
+- Authenticated synthetic SSE refusal ended with [DONE] locally. No real placed
+  call or Bolna-delivered turn is established by it.
+- Gateway --check passed; live gateway is deliberately stopped until authorization
+  to process/send through the bot. Tunnel/publication is not started. GitHub App,
+  key and HMAC secret are absent. Hosted Bolna configuration is unchanged.
+- Added docs/DEPLOYMENT.md, docs/DEMO_RUNBOOK.md and a workflow_dispatch-only toy
+  CI fixture. Do not run/copy/dispatch it in an external repository without
+  explicit controlled-repository approval. Updated stale README deployment text.
+- Phase 8 deployment readiness progressed; no phase-complete/live acceptance
+  boxes were inferred. No Git operations or external account mutations occurred.
+
+## 2026-10-31: Render Free target replaces public Cloudflare setup
+
+User instruction: exactly one Free Docker web service and one Free PostgreSQL,
+zero paid infrastructure; preserve the private fallback. User signed into Render
+and reports a Free database available in Singapore. render.yaml references that
+existing database rather than creating another one, and explicitly selects Free
+with manual deploys. No paid worker, disk, cron or pre-deploy task is defined.
+
+Added serialized startup migrations, dynamic PORT binding, a dedicated Render
+restricted factory/Host policy, and a port-aware container probe. Only the Render
+factory trusts the documented edge-overwritten CF-Connecting-IP; status secret,
+Bolna allowlist, turn Bearer auth and call-reference checks are retained.
+Private loopback ingress and its running containers are preserved.
+
+70 focused tests passed, including PostgreSQL call-reference cases. The first
+DB rerun used a stale dynamic test-container port; refreshing only that private
+test URL resolved connectivity. A separate Render image built and started against
+disposable PostgreSQL. This is local platform simulation, not actual Render
+API/database or voice delivery acceptance. The full 784-test suite was not repeated.
+
+Caspian polling is deferred on the sleeping Free service. Private provisioning and
+call dispatch require an explicit secure operating path; Free offers no shell.
+Do not expose operator routes or bypass enrollment to manufacture a live demo.
+Source publication, web-service creation/credential entry and approval remain the
+current human boundary. Actual HTTPS URL and phone tests remain pending.

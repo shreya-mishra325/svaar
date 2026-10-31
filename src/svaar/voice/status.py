@@ -104,7 +104,13 @@ async def voice_status(request: Request) -> dict[str, str]:
         raise HTTPException(401)
     # Only the dedicated loopback Cloudflare listener trusts this edge header.
     # The normal application still checks the actual peer and ignores all headers.
-    if getattr(request.app.state, "cloudflare_status_ingress", False):
+    if getattr(request.app.state, "render_status_ingress", False):
+        # Only create_render_app enables this managed-edge policy. Render's
+        # Cloudflare edge overwrites this header; arbitrary XFF is never used.
+        addresses = request.headers.getlist("cf-connecting-ip")
+        if len(addresses) != 1 or addresses[0] not in ALLOWED_IPS:
+            raise HTTPException(403)
+    elif getattr(request.app.state, "cloudflare_status_ingress", False):
         if request.client is None or request.client.host != "127.0.0.1":
             raise HTTPException(403)
         addresses = request.headers.getlist("cf-connecting-ip")

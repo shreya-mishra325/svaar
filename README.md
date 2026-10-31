@@ -2,6 +2,9 @@
 
 # Svaar
 
+Public deployment target: [one Free Render web service and Free Postgres](docs/RENDER_DEPLOYMENT.md).
+The private Compose deployment remains a fallback; no Cloudflare setup is required for Render.
+
 Svaar is a voice-enabled agent for engineering incidents. It lives in team chat, watches CI, rebuilds what happened from recorded events, checks status claims against evidence, calls engineers by phone to verify them, and negotiates conflicting constraints into a plan that deterministic code has validated.
 
 **Models propose, deterministic code enforces, Bolna speaks.**
@@ -12,18 +15,15 @@ Svaar is a voice-enabled agent for engineering incidents. It lives in team chat,
 
 Svaar has one agent. Chat messages and phone calls reach the same tool loop, the same tool registry and the same approval gate.
 
-This describes the target architecture. The current code implements shared infrastructure,
-health probes, package boundaries, the voice turn-runner protocol, and the Phase 1 local
-foundation: identity with single-use invites, the `actions` registry and dispatcher with
-mission guard and execution audit, owner-bound confirmations, and P0 decision schemas with
-confidence policy, heuristic fallback and decision audit. Phase 2 now includes the shared
-transport-independent agent core, an OpenAI-compatible HTTP adapter, bounded chat/voice
-profiles, registry-generated policy and audited voice usability/intent gates. Durable chat
-history, inbound dedupe and an outbox worker now exist, verified with fake transports and real
-PostgreSQL. The standalone Caspian adapter has read-only connection/poll acceptance; Groq smoke
-results are user-reported. Live channel enrollment, verified provider activation, trusted
-call resolution and incident features remain unfinished. Cerebro is an
-architectural reference, not a deployed dependency.
+Current implementation includes the shared chat/voice agent, identity and confirmation
+gates, signed CI observations, incidents/claims/evidence, guarded jobs, negotiation,
+isolated replay and authenticated Bolna turn/status routes. Most provider-domain
+flows are tested offline; this does not establish live acceptance.
+
+For the current private deployment and verified limits, read
+[DEPLOYMENT.md](docs/DEPLOYMENT.md) and [DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md).
+The local demo API/database/restricted origin are verified; public HTTPS and the
+complete Telegram/GitHub/voice demo remain pending. Cerebro is a reference only.
 
 ## How it works
 
@@ -76,30 +76,27 @@ Svaar is a FastAPI modular monolith. Each package owns its tables, models and ro
 
 Two boundaries matter most:
 
-- `agent` and `voice` never import each other. `voice/contracts.py` defines the synchronous `TurnRunner` protocol. When implemented, application startup will inject the agent's structurally compatible implementation; no turn runner is wired today. Both packages may depend on `actions` and `identity`.
+- `agent` and `voice` never import each other. `voice/contracts.py` defines the synchronous `TurnRunner` protocol. Application startup injects the agent's structurally compatible executor through the protocol. Both packages may depend on `actions` and `identity`.
 - Replay output never enters `events`. Observations and simulations stay in separate tables.
 
 Every business tool call must pass through `actions`; neither a transport nor a model may
-call a feature handler directly. The voice intent router and transcript-usability gate belong
-to the future agent/decision path. The deterministic mission guard must not allow either
-model to expand a call's mission or tool allowlist. These are feature requirements, not
-implemented checks in this scaffold.
+call a feature handler directly. The voice intent router and transcript-usability gate run in the shared agent/decision path. The deterministic mission guard must not allow either
+model to expand a call's mission or tool allowlist. These controls are implemented and tested; provider acceptance remains separate.
 
 External SDKs and HTTP contracts belong behind adapters, never in deterministic business rules.
 
 ## Processes
 
-| Process | Target responsibility / current status |
-| --- | --- |
-| `app` | FastAPI probes, operator org/invite/repo-mapping routes and authenticated GitHub ingress. Internal voice runner exists; provider voice routes remain pending |
-| `gateway` | Opt-in chat polling, durable cursor, outbox and heartbeat wiring. Missing configuration prevents live startup; incident polling jobs remain pending |
+The app, chat gateway, CI worker and restricted provider ingress use the same
+application image and PostgreSQL database. The gateway persists its cursor and
+heartbeat; the CI worker leases durable jobs and records a process heartbeat.
+Call placement remains explicit through the guarded operator dispatch CLI.
 
-Both are built from the same image. Only Bolna and GitHub (and the chat channel provider, if it delivers by webhook) need to reach the application. Expose only the voice and webhook routes through a tunnel. Keep `/docs` and every other route local.
-
-No external service needs access yet. When routes exist, restrict tunnel ingress to the
-implemented voice paths, GitHub webhook, and Caspian webhook only if the confirmed transport
-requires one. No channel SDK or provider-specific dependency is installed before its contract
-is verified. Caspian is the planned channel transport, with Telegram as the fallback.
+Use compose.yaml for development. For the isolated hardened demo use
+compose.demo.yaml as described in [DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Only the restricted ingress belongs behind the named tunnel; operator routes
+and PostgreSQL remain private. A temporary Quick Tunnel is unsuitable for the
+custom LLM because it does not support SSE.
 
 ## Install and run locally
 
@@ -134,20 +131,15 @@ Compose starts PostgreSQL, waits for its health check, runs migrations as a one-
 then starts the unprivileged `app`. PostgreSQL persists in the `postgres_data` volume. `down`
 preserves data. Do not delete the volume unless its data is disposable.
 
-The reserved `gateway` service uses the same image, has no published ports, and waits for
-migrations. It is behind the `gateway` profile so normal startup does not launch an unfinished
-runtime. Check its infrastructure explicitly:
+The gateway is an opt-in implemented runtime, not a placeholder. Its --check
+mode tests only database infrastructure. Starting it normally can process existing
+incoming messages and send replies; get authorization before a live startup.
+Its --status mode checks a fresh persisted heartbeat. The ci profile starts
+the read-only log worker only after its App configuration is ready.
 
 ```sh
 docker compose run --build --rm gateway --check
 ```
-
-For local Python, use `uv run --locked python -m svaar.gateway --check` with PostgreSQL running.
-The diagnostic checks settings and database connectivity, then exits. It does not listen to
-channels, send messages, or run jobs. Without `--check`, startup exits with code 2 and a clear
-runtime-unavailable error. Replace that refusal with real agent/jobs composition when the
-features are ready, then enable the profile and add runtime-specific health checks. The API's
-HTTP health check is deliberately disabled on the gateway, which is not an HTTP server.
 
 Only localhost ports 8000 and 5433 are published. `.env` and `plans/` are excluded from the image build context, not from the repository. Docker image tags are versioned but not digest-pinned.
 
@@ -202,8 +194,7 @@ Python file reload does not ensure new environment values have been loaded.
 When configured, application lifespan creates `app.state.agent_loop` without making a provider
 request and closes inference/HTTP resources on shutdown. When unset, that state is `None`.
 Compose passes model and shared decision/confirmation policy settings to app/gateway,
-not migrations. The operator token and invite TTL remain app-only. No public chat/voice route
-uses the loop yet. By default SVAAR_CLASSIFIER_ENABLED=false keeps conservative
+not migrations. The operator token and invite TTL remain app-only. Configured authenticated voice routes use the same loop; live acceptance remains pending. By default SVAAR_CLASSIFIER_ENABLED=false keeps conservative
 heuristic-only decisions, so composed voice gates request clarification.
 
 Jev was removed on 2026-10-27, including its adapter and provider-specific tests.
@@ -249,8 +240,7 @@ Model selection stays in local `SVAAR_LLM_MODEL`; no provider model is hardcoded
 `AgentLoop.run` accepts a server-resolved `ToolContext`, a caller-owned session and already
 scoped history. It never invokes handlers directly. The caller must persist/dedupe the turn
 and enqueue replies, confirmation tickets and fallback notifications through the outbox coordinator.
-Tickets must never enter model history, a spoken reply or logs. The loop does not implement
-the call-ID `TurnRunner` contract yet because trusted call resolution belongs to the voice phase.
+Tickets must never enter model history, a spoken reply or logs. The voice executor and reference runner compose the call-ID protocol with trusted persisted call context.
 
 Model waits are bounded by one absolute turn deadline; late inference can never execute tools,
 and abandoned requests continue occupying bounded inference capacity until they finish.
@@ -378,28 +368,19 @@ Contracts: [deployed OpenAPI](https://api.trycaspianai.com/openapi.json) and
 [official Telegram provider](https://github.com/TryCaspian/caspian-sdk/blob/718a96d6d04cb76c7ccce942d2532fd4adbfd545/server/src/comm_gateway/providers/telegram.py).
 HTTP tests use synthetic payloads; no live outbound acceptance is claimed.
 
-### Planned feature settings
+### Integration configuration
 
-These variables are introduced with the feature that reads them and must be validated at
-application construction when that feature is enabled. They are listed as commented examples
-in `.env.example`, not active fields in the Settings class. Wire each feature's credentials
-only to the processes that need them as the feature is implemented.
-
-| Area | Variables |
-| --- | --- |
-| Channels | `SVAAR_CASPIAN_WEBHOOK_SECRET`, `SVAAR_TELEGRAM_BOT_TOKEN` |
-| Bolna | `SVAAR_BOLNA_API_KEY`, `SVAAR_BOLNA_AGENT_ID`, `SVAAR_VOICE_TURN_MODE` (`llm_endpoint` or `function`), `SVAAR_VOICE_TURN_TOKEN`, `SVAAR_VOICE_STATUS_SECRET` |
-| GitHub | `SVAAR_GITHUB_APP_ID`, `SVAAR_GITHUB_PRIVATE_KEY_B64`, `SVAAR_GITHUB_INSTALLATION_ID`, `SVAAR_GITHUB_WEBHOOK_SECRET` |
-| Jira | `SVAAR_JIRA_BASE_URL`, `SVAAR_JIRA_EMAIL`, `SVAAR_JIRA_API_TOKEN`, `SVAAR_JIRA_DEFAULT_PROJECT_KEY` |
-
-Keep real credentials out of source control and logs. Production must inject its own secrets, database URL and HTTPS and access boundary. Production disables docs and OpenAPI.
+Bolna turn/status, Caspian polling, GitHub App/webhook and shared model settings
+are active optional configuration. See .env.example and the deployment guide
+for names and per-process scopes. Jira and direct Telegram transport are still
+unimplemented optional integrations. Configured credentials are not proof of
+live delivery, calling or provider acceptance.
 
 ## Security model
 
 The following controls are requirements for feature implementation. Operator bearer
 authentication, invite-based identity, dispatcher enforcement and confirmations exist and are
-tested locally. Voice, channel and webhook authentication and the transports that would invoke
-the dispatcher do not exist yet; configuring a token alone does not enable or protect a feature.
+tested locally. Voice, channel and webhook authentication exist; configuring credentials alone does not establish live end-to-end acceptance.
 
 - **Separate credentials.** The operator token only opens operator routes. Voice turns, the voice status webhook, the GitHub webhook and any channel webhook each have their own credential. GitHub deliveries are verified by HMAC and deduplicated by delivery ID. The Bolna status webhook accepts only Bolna's addresses plus a shared secret.
 - **Verified identity.** People join with single-use, expiring invites. No organization is created from chat. Ordinary missions call only verified phones. The `phone_verify` mission is the narrow exception: it may dial only the pending number bound to that principal's verification challenge and may only verify that challenge. A caller cannot establish identity by asserting it during a call.
@@ -469,8 +450,7 @@ SVAAR_TEST_DATABASE_URL=postgresql+psycopg://svaar:svaar_dev_only@localhost:5433
 
 Feature tests cover behavior and trust rules, not implementation details: the dispatcher never runs a risky tool unconfirmed, a confirmation runs at most once under concurrent attempts, invites are single-use, duplicates take effect once, and absent evidence never contradicts a claim. Every provider integration (Caspian, Telegram, Bolna, GitHub, Jira, the chat LLM) is mocked behind its adapter in tests.
 
-Those feature tests are future acceptance requirements. Current tests cover infrastructure,
-including gateway diagnostic cleanup and refusal to advertise an unimplemented listener.
+The suite includes infrastructure and domain trust-boundary tests. Live provider acceptance remains separately tracked in plans/checkpoints.md.
 
 CI installs the locked environment, checks formatting and lint, runs migrations, the gateway
 infrastructure diagnostic and tests against PostgreSQL, and validates default and gateway-profile
@@ -485,6 +465,12 @@ Compose configuration. Container build and startup should also be checked locall
 - Refresh `uv.lock` with `uv lock` after approved dependency changes.
 - Work on feature branches. Check for redundant routes, folders and naming drift before merging.
 - Git operations and submission-time document cleanup are performed manually by the team.
+
+## Implementation history
+
+Earlier notes below describe the scope when each feature was introduced. Their
+pending-work statements are historical; use the deployment guide and latest
+checkpoints for current implementation and live acceptance.
 
 ### Internal shared voice runner
 
