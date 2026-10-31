@@ -152,3 +152,55 @@ reference. SVAAR_DATABASE_URL now uses sync:false for private dashboard entry.
 No database is created/replaced. Credentials pasted into the conversation must
 be replaced before deployment; local Render voice tokens were regenerated without
 printing them. The Groq key must be revoked/replaced by the account holder.
+
+## Live Render HTTP verification, 2026-10-31
+
+Actual URL: https://svaar-demo.onrender.com (user-approved deployment, screenshot
+shows Free instance and commit 42dff4c).
+
+Read-only/synthetic public checks executed by the engineer:
+- GET /health -> 200.
+- GET /ready -> 200, verifying the deployed API's database connectivity.
+- /docs, /openapi.json and /api/v1/orgs -> 404.
+- Voice models without auth -> 401; with the local Render turn token -> 200.
+- Authenticated missing-reference synthetic completion -> 200, text/event-stream,
+  terminated with data: [DONE]. This deliberately refused, without model/tool work.
+- Status request with matching secret and forged CF-Connecting-IP/X-Forwarded-For
+  claiming an allowlisted source -> 403.
+
+The root / intentionally has no route and returns 404; there is no frontend.
+These results do not establish a real Bolna call, valid provider callback,
+call-reference/history delivery, Groq inference from Render, or domain completion.
+No calls, Telegram sends, GitHub mutations or hosted-agent updates were performed.
+Next human action: configure the Bolna custom model and matching status callback;
+save configuration only. Each actual phone test still requires approval and a
+valid prepared call context in the Render database.
+
+
+### Render private control and enrollment preparation, 2026-10-31
+
+User approved the laptop Caspian Telegram companion to process messages and send
+replies against the existing Render database. Only the user deploys; no hosted
+configuration or deployment was changed by the agent. External database access
+was configured by the user; effective workspace allowlist scope is not independently
+verified. A read-only external connection confirmed TLS and schema 0026. The
+database initially contained no organizations, principals, bindings, challenges
+or calls. Existing authenticated operator routes created one Svaar Live Demo
+organization and a single-use lead invite; the invite is saved only in ignored
+.env.render-enrollment (mode 0600). No identity or verified phone was seeded.
+
+The existing gateway runs as a temporary laptop process using .env.demo provider
+configuration and the .env.render-control external database URL with required TLS.
+Automatic escalation/claim jobs and CI actions are disabled. Its persisted
+heartbeat was fresh, state processing, with no error code; principals and calls
+remained zero at that check. This is not completed chat enrollment or voice
+acceptance. Next: user redeems /join in the private configured Telegram chat,
+then /verify_phone to prepare a challenge and pending call. Exact recipient/call
+authorization is required before explicit dispatch. No call has been placed.
+The companion stops when its laptop process/session stops; no paid worker exists.
+No code changed or test suite rerun for this operational preparation.
+
+
+Additional local channel companions and blockers: see docs/CASPIAN_CHANNELS.md.
+Slack/Discord private-message code is implemented; email privileged runtime is
+blocked. None of these new-channel listeners was started or deployed.

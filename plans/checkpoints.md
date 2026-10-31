@@ -1441,3 +1441,75 @@ call dispatch require an explicit secure operating path; Free offers no shell.
 Do not expose operator routes or bypass enrollment to manufacture a live demo.
 Source publication, web-service creation/credential entry and approval remain the
 current human boundary. Actual HTTPS URL and phone tests remain pending.
+
+## 2026-10-31: live Render HTTP/database readiness verified
+
+Actual URL: https://svaar-demo.onrender.com (user-approved deployment, screenshot
+shows Free instance and commit 42dff4c).
+
+Read-only/synthetic public checks executed by the engineer:
+- GET /health -> 200.
+- GET /ready -> 200, verifying the deployed API's database connectivity.
+- /docs, /openapi.json and /api/v1/orgs -> 404.
+- Voice models without auth -> 401; with the local Render turn token -> 200.
+- Authenticated missing-reference synthetic completion -> 200, text/event-stream,
+  terminated with data: [DONE]. This deliberately refused, without model/tool work.
+- Status request with matching secret and forged CF-Connecting-IP/X-Forwarded-For
+  claiming an allowlisted source -> 403.
+
+The root / intentionally has no route and returns 404; there is no frontend.
+These results do not establish a real Bolna call, valid provider callback,
+call-reference/history delivery, Groq inference from Render, or domain completion.
+No calls, Telegram sends, GitHub mutations or hosted-agent updates were performed.
+Next human action: configure the Bolna custom model and matching status callback;
+save configuration only. Each actual phone test still requires approval and a
+valid prepared call context in the Render database.
+
+
+### Render private control and enrollment preparation, 2026-10-31
+
+User approved the laptop Caspian Telegram companion to process messages and send
+replies against the existing Render database. Only the user deploys; no hosted
+configuration or deployment was changed by the agent. External database access
+was configured by the user; effective workspace allowlist scope is not independently
+verified. A read-only external connection confirmed TLS and schema 0026. The
+database initially contained no organizations, principals, bindings, challenges
+or calls. Existing authenticated operator routes created one Svaar Live Demo
+organization and a single-use lead invite; the invite is saved only in ignored
+.env.render-enrollment (mode 0600). No identity or verified phone was seeded.
+
+The existing gateway runs as a temporary laptop process using .env.demo provider
+configuration and the .env.render-control external database URL with required TLS.
+Automatic escalation/claim jobs and CI actions are disabled. Its persisted
+heartbeat was fresh, state processing, with no error code; principals and calls
+remained zero at that check. This is not completed chat enrollment or voice
+acceptance. Next: user redeems /join in the private configured Telegram chat,
+then /verify_phone to prepare a challenge and pending call. Exact recipient/call
+authorization is required before explicit dispatch. No call has been placed.
+The companion stops when its laptop process/session stops; no paid worker exists.
+No code changed or test suite rerun for this operational preparation.
+
+
+### Additional Caspian channels, 2026-10-31 (A-031)
+
+User explicitly added Discord, Slack and email despite PLAN.md's prior cuts.
+PLAN.md remains unchanged. Slack im and Discord dm paths now use the shared
+agent/actions/outbox, selected by --channel or SVAAR_CASPIAN_CHANNEL. Telegram
+remains the default and retains its compatibility class. Groups/guilds and unknown
+privacy labels remain skipped. Email diagnostics exist, but email runtime/sends
+remain blocked because From identity is unverified. Shared Discord guild routing
+cannot supply DMs; live private delivery remains blocked until a suitable
+connection exists. See docs/CASPIAN_CHANNELS.md for verified provider source.
+
+- [x] Slack/Discord private adapter and gateway selection implemented and tested offline.
+- [x] Email adapter diagnostics implemented; explicit startup/send refusal tested.
+- [x] Actual configured Slack/Discord/email connections active and GET poll verified.
+- [ ] Slack/Discord private-message enrollment, gated read and outbound delivery accepted live.
+- [ ] Authenticated email enrollment/action design and actual email delivery.
+
+85 focused tests passed, zero skips, on disposable PostgreSQL; migration drift
+check passed. Local Discord address was filled from GET-verified connection
+metadata; ignored Render control URL was normalized to psycopg with required TLS.
+No new-channel gateway was started, no new-channel message sent, no call placed,
+and no hosted configuration/deployment changed. Only the user deploys. The
+already-approved Telegram companion was not replaced. No full-suite rerun.

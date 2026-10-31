@@ -1,4 +1,4 @@
-"""Caspian hosted Telegram adapter, verified against its deployed OpenAPI.
+"""Caspian hosted channel adapter, verified against its deployed OpenAPI.
 
 References: https://api.trycaspianai.com/openapi.json and official provider source
 at TryCaspian/caspian-sdk commit 718a96d6d04cb76c7ccce942d2532fd4adbfd545.
@@ -55,16 +55,19 @@ class _Event(_WireModel):
     data: dict[str, Any] = Field(repr=False)
 
 
+CaspianChannel = Literal["telegram", "slack", "discord", "email"]
+
+
 class _Connection(_WireModel):
     id: str
-    channel: Literal["telegram"]
+    channel: CaspianChannel
     status: Literal["active"]
     address: str = Field(repr=False)
     capabilities: list[str]
 
 
-class CaspianTelegramTransport:
-    """Read one configured Telegram connection; never provision or auto-retry."""
+class CaspianTransport:
+    """Read one configured connection; never provision or auto-retry."""
 
     def __init__(
         self,
@@ -73,8 +76,12 @@ class CaspianTelegramTransport:
         connection_id: str,
         address: str,
         base_url: str = "https://api.trycaspianai.com",
+        channel: CaspianChannel = "telegram",
         transport: httpx.BaseTransport | None = None,
     ) -> None:
+        if channel not in {"telegram", "slack", "discord", "email"}:
+            raise ValueError("Unsupported Caspian channel")
+        self.channel = channel
         if base_url.rstrip("/") != "https://api.trycaspianai.com":
             raise ValueError("Use the verified Caspian HTTPS endpoint")
         if (
@@ -82,7 +89,7 @@ class CaspianTelegramTransport:
             or not connection_id.strip()
             or not address.strip()
         ):
-            raise ValueError("Caspian key, Telegram connection ID and bot address are required")
+            raise ValueError("Caspian key, connection ID and address are required")
         self.connection_id = connection_id
         self.address = address
         self._client = httpx.Client(
@@ -95,22 +102,19 @@ class CaspianTelegramTransport:
         )
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> "CaspianTelegramTransport":
-        """Require explicit configured credentials without connecting on startup."""
-        if not all(
-            (
-                settings.caspian_base_url,
-                settings.caspian_api_key,
-                settings.caspian_telegram_connection_id,
-                settings.caspian_telegram_address,
-            )
-        ):
-            raise ValueError("Configure Caspian key/base URL and Telegram connection ID/address")
+    def from_settings(cls, settings: Settings) -> "CaspianTransport":
+        """Require credentials for exactly the selected channel, without connecting."""
+        channel = settings.caspian_channel
+        connection_id = getattr(settings, f"caspian_{channel}_connection_id")
+        address = getattr(settings, f"caspian_{channel}_address")
+        if not all((settings.caspian_base_url, settings.caspian_api_key, connection_id, address)):
+            raise ValueError("Configure Caspian key/base URL and selected channel ID/address")
         return cls(
             api_key=settings.caspian_api_key,
             base_url=settings.caspian_base_url,
-            connection_id=settings.caspian_telegram_connection_id,
-            address=settings.caspian_telegram_address,
+            connection_id=connection_id,
+            address=address,
+            channel=channel,
         )
 
     def close(self) -> None:
@@ -131,16 +135,17 @@ class CaspianTelegramTransport:
         try:
             connection = _Connection.model_validate(body)
         except ValidationError:
-            raise TransportUnavailableError("Invalid or inactive Telegram connection") from None
+            raise TransportUnavailableError("Invalid or inactive Caspian connection") from None
         if (
             connection.id != self.connection_id
             or connection.address != self.address
+            or connection.channel != self.channel
             or not {"receive", "reply", "send"}.issubset(connection.capabilities)
         ):
-            raise TransportUnavailableError("Telegram connection does not match configuration")
+            raise TransportUnavailableError("Caspian connection does not match configuration")
 
     def poll(self, *, after_seq: int, limit: int = 100) -> PollBatch:
-        """Read ordered project events and accept only fresh private Telegram text.
+        """Read ordered project events and accept only fresh private text.
 
         Other connections/types still advance the returned cursor. Malformed events
         stop the whole batch, so the caller cannot accidentally acknowledge a gap.
@@ -176,12 +181,12 @@ class CaspianTelegramTransport:
                 message = _Message.model_validate(event.data.get("message"))
                 if (
                     message.connection_id != self.connection_id
-                    or message.channel != "telegram"
+                    or message.channel != self.channel
                     or message.direction != "inbound"
                 ):
-                    raise ValueError("Mismatched Telegram event")
+                    raise ValueError("Mismatched channel event")
                 if (
-                    message.chat_type != "private"
+                    not self._private_message(message)
                     or message.edited
                     or message.auto_generated
                     or not message.text
@@ -191,22 +196,41 @@ class CaspianTelegramTransport:
                     continue
                 messages.append(
                     InboundMessage(
-                        channel="caspian:telegram",
+                        channel=f"caspian:{self.channel}",
                         connection_id=self.connection_id,
                         external_message_id=message.id,
                         thread_id=message.conversation_id,
                         sender_address=message.sender.address,
                         text=message.text,
-                        sender_authenticated=True,
+                        sender_authenticated=self.channel != "email",
                     )
                 )
         except (ValidationError, ValueError):
             raise TransportUnavailableError("Invalid Caspian event") from None
         return PollBatch(tuple(messages), cursor)
 
+    def _private_message(self, message: _Message) -> bool:
+        """Use provider-specific privacy labels; email never grants sender trust.
+
+        Slack channel/group DMs and Discord guilds cannot receive private codes.
+        Shared Discord guild installs may therefore have no supported DM route.
+        Email is diagnostic-only until authenticated sender evidence is available.
+        """
+        if self.channel == "email":
+            return message.chat_type is None
+        return (
+            message.chat_type
+            == {"telegram": "private", "slack": "im", "discord": "dm"}[self.channel]
+        )
+
     def send(self, target: InboundMessage, text: str) -> DeliveryReceipt:
         """Send once; queued is acceptance only. No network send runs automatically."""
-        if target.connection_id != self.connection_id or target.channel != "caspian:telegram":
+        if self.channel == "email":
+            raise ValueError("Email delivery is blocked pending sender authentication")
+        if (
+            target.connection_id != self.connection_id
+            or target.channel != f"caspian:{self.channel}"
+        ):
             raise ValueError("Outbound target belongs to another connection")
         if not text.strip():
             raise ValueError("Cannot send an empty reply")
@@ -247,9 +271,18 @@ class CaspianTelegramTransport:
         if (
             message.connection_id != self.connection_id
             or message.conversation_id != thread_id
-            or message.channel != "telegram"
+            or message.channel != self.channel
             or message.direction != "outbound"
             or message.status not in {"queued", "sent", "delivered", "failed"}
         ):
             raise TransportUnavailableError("Invalid delivery receipt")
         return DeliveryReceipt(message.id, message.status)
+
+
+class CaspianTelegramTransport(CaspianTransport):
+    """Backward-compatible Telegram constructor for existing callers."""
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> "CaspianTelegramTransport":
+        """Select Telegram explicitly even if another gateway channel is configured."""
+        return super().from_settings(settings.model_copy(update={"caspian_channel": "telegram"}))

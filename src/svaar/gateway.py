@@ -20,7 +20,7 @@ from sqlalchemy.orm import sessionmaker
 
 from svaar.actions.catalog import build_registry
 from svaar.actions.dispatcher import ApprovalPolicy, Dispatcher
-from svaar.agent.caspian import CaspianTelegramTransport
+from svaar.agent.caspian import CaspianTelegramTransport, CaspianTransport
 from svaar.agent.llm import HttpChatModel
 from svaar.agent.loop import AgentLoop
 from svaar.agent.models import GatewayCursor
@@ -66,11 +66,20 @@ def _run(settings: Settings) -> int:
     if settings.channel_transport != "caspian" or settings.llm_model is None:
         logger.error("gateway_configuration_incomplete; select Caspian and configure the LLM")
         return 2
+    if settings.caspian_channel == "email":
+        logger.error("gateway_email_blocked; authenticated email sender evidence unavailable")
+        return 2
     with ExitStack() as resources:
         try:
-            transport = CaspianTelegramTransport.from_settings(settings)
+            transport = (
+                CaspianTelegramTransport.from_settings(settings)
+                if settings.caspian_channel == "telegram"
+                else CaspianTransport.from_settings(settings)
+            )
         except ValueError:
-            logger.error("gateway_configuration_incomplete; configure Caspian connection fields")
+            logger.error(
+                "gateway_configuration_incomplete; configure selected Caspian connection fields"
+            )
             return 2
         resources.callback(transport.close)
         engine = create_database_engine(settings)
@@ -127,8 +136,8 @@ def _run(settings: Settings) -> int:
             sessions,
             runtime,
             transport,
-            channel="caspian:telegram",
-            connection_id=settings.caspian_telegram_connection_id,
+            channel=f"caspian:{settings.caspian_channel}",
+            connection_id=getattr(settings, f"caspian_{settings.caspian_channel}_connection_id"),
             poll_seconds=settings.gateway_poll_seconds,
             batch_size=settings.gateway_batch_size,
             periodic_jobs=_periodic(jobs, answers),
@@ -148,6 +157,11 @@ def _run(settings: Settings) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the selected channel or inspect infrastructure/runtime separately."""
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--channel",
+        choices=("telegram", "slack", "discord", "email"),
+        help="One Caspian channel per process; defaults to configured channel",
+    )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true", help="Database infrastructure only")
     mode.add_argument(
@@ -156,6 +170,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         settings = Settings()
+        if args.channel is not None:
+            settings = settings.model_copy(update={"caspian_channel": args.channel})
     except ValidationError:
         configure_logging("ERROR")
         logger.error("gateway_configuration_invalid; check SVAAR_ settings")
@@ -167,7 +183,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         except (SQLAlchemyError, TransportUnavailableError, ValueError) as exc:
             logger.error("gateway_start_failed", extra={"error_type": type(exc).__name__})
             return 1
-    if args.status and not settings.caspian_telegram_connection_id:
+    if args.status and not getattr(settings, f"caspian_{settings.caspian_channel}_connection_id"):
         print(json.dumps({"status": "not_configured"}))
         return 2
     engine = create_database_engine(settings)
@@ -180,7 +196,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         with sessionmaker(bind=engine)() as session:
             row = session.get(
                 GatewayCursor,
-                stream_key("caspian:telegram", settings.caspian_telegram_connection_id),
+                stream_key(
+                    f"caspian:{settings.caspian_channel}",
+                    getattr(settings, f"caspian_{settings.caspian_channel}_connection_id"),
+                ),
             )
             if row is None:
                 print(json.dumps({"status": "not_started"}))
