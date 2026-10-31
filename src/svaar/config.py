@@ -54,7 +54,14 @@ class Settings(BaseSettings):
     gateway_poll_seconds: float = Field(default=2.0, ge=0.1, le=30.0)
     gateway_batch_size: int = Field(default=10, ge=1, le=100)
 
-    # Hosted Caspian Telegram adapter; credentials alone never start a listener.
+    # Hosted Caspian adapters; credentials alone never start a listener.
+    caspian_channel: Literal["telegram", "slack", "discord", "email"] = "telegram"
+    caspian_slack_connection_id: str | None = Field(default=None, repr=False)
+    caspian_slack_address: str | None = Field(default=None, repr=False)
+    caspian_discord_connection_id: str | None = Field(default=None, repr=False)
+    caspian_discord_address: str | None = Field(default=None, repr=False)
+    caspian_email_connection_id: str | None = Field(default=None, repr=False)
+    caspian_email_address: str | None = Field(default=None, repr=False)
     caspian_base_url: str | None = None
     caspian_api_key: SecretStr | None = None
     caspian_telegram_connection_id: str | None = Field(default=None, repr=False)
@@ -117,6 +124,12 @@ class Settings(BaseSettings):
         "llm_model",
         "caspian_base_url",
         "caspian_api_key",
+        "caspian_slack_connection_id",
+        "caspian_slack_address",
+        "caspian_discord_connection_id",
+        "caspian_discord_address",
+        "caspian_email_connection_id",
+        "caspian_email_address",
         "caspian_telegram_connection_id",
         "caspian_telegram_address",
         mode="before",

@@ -240,6 +240,6 @@ def test_probe_failure_is_sanitized(monkeypatch, capsys):
         raise ValueError("private credential")
 
     monkeypatch.setattr(caspian_smoke, "Settings", unavailable)
-    assert caspian_smoke.main() == 1
+    assert caspian_smoke.main([]) == 1
     result = capsys.readouterr().out
     assert "private" not in result and json.loads(result)["messages_sent"] == 0
