@@ -66,6 +66,9 @@ class _BudgetedEngine:
 
     def __init__(self, engine: DecisionEngine, pool: InferencePool, deadline: float) -> None:
         self.engine, self.pool, self.deadline = engine, pool, deadline
+        # Timer waits can return a few milliseconds early (notably on Windows), so a
+        # deadline expiry is recorded explicitly rather than inferred from the clock.
+        self.timed_out = False
 
     def decide(self, state: str, questions: Sequence[Question]) -> Sequence[Decision]:
         try:
@@ -77,6 +80,7 @@ class _BudgetedEngine:
                 engine = engine.with_timeout(remaining)
             return self.pool.call(lambda: engine.decide(state, questions), deadline=self.deadline)
         except TurnTimeoutError:
+            self.timed_out = True
             raise DecisionUnavailableError("Decision turn deadline reached") from None
 
 
@@ -228,6 +232,8 @@ class AgentLoop:
             state=state,
             questions=[TRANSCRIPT_USABILITY, VOICE_INTENT],
         )
+        if bounded is not None and bounded.timed_out:
+            raise TurnTimeoutError("Decision turn deadline reached")
         self._check_deadline(deadline)
         usability, intent = decisions
         if any(result.outcome is not PolicyOutcome.ACT for result in decisions):

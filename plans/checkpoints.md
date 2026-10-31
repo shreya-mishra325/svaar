@@ -32,8 +32,7 @@ explicit authorization covering the action and target.
 
 ## Current position
 
-Latest implementation verification: **736 of 739 tests passed on 2026-10-31** (the
-three Windows-only cases are A-026), plus
+Latest implementation verification: **739 of 739 tests passed on 2026-10-31**, plus
 Ruff lint/format and alembic check against the isolated PostgreSQL test database.
 The database container is healthy. Both local databases are at revision
 0025 with clean drift checks; the merge graph was verified (A-020) and the
@@ -1270,3 +1269,21 @@ Verification: 736 of 739 tests passed; the remainder are the Windows-only cases
 in A-026. Ruff format/lint passed. Test-only round trip 0025 -> 0023 -> 0025 and alembic
 check on both databases passed. No live provider requests, calls, messages or
 classifier requests were made.
+
+
+## 2026-10-31: Windows test failures fixed
+
+- incidents/fingerprints.py now rejects backslash archive member names using
+  ZipInfo.orig_filename. On Windows, zipfile rewrites backslashes to "/" when reading,
+  so the previous check never fired there; Linux behaviour is unchanged.
+- agent/loop.py treats a classifier turn-deadline expiry in the voice gate as a timed
+  out turn. Timer waits can return a few milliseconds early on Windows, which turned
+  the fixed unavailable fallback into a clarification request.
+- Tests: short explicit IDs for parametrized cases whose generated IDs exceeded the
+  Windows environment-variable limit, a raw-name helper for the backslash archive, and
+  float tolerance on the 0.1 second budget assertion.
+- Local only: the git-ignored .env now uses 127.0.0.1. On this Windows machine localhost
+  resolved to IPv6 first and each new connection took 10 seconds, which broke a 5 second
+  concurrency barrier in test_log_enrichment and slowed the suite.
+
+Verification: 739 passed, 0 failed (full suite, 4 min 53 s); Ruff format/lint passed.

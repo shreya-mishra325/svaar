@@ -936,6 +936,8 @@ The teammate's voice wiring remains separate and unchanged.
 
 ## A-026: three tests fail only on Windows
 
+- Status: Resolved 2026-10-31; see the resolution note below.
+
 - Observed 2026-10-31 on Windows 11 with Python 3.11; does not occur on Linux CI/macOS.
 - Two parametrized tests (test_classifier invalid envelopes, failure_fingerprints bad
   logs) have megabyte-sized test IDs. pytest stores the ID in PYTEST_CURRENT_TEST and
@@ -963,3 +965,13 @@ The teammate's voice wiring remains separate and unchanged.
   production dispatch path exists, so these guards are not live-verified.
 - Thresholds remain placeholders until a labelled evaluation set exists.
 - Owner: Team review; no individual assigned.
+
+### A-026 resolution, 2026-10-31
+
+The backslash case exposed a real platform difference: zipfile also normalizes names
+on read, so incidents/fingerprints.py now checks ZipInfo.orig_filename. The voice gate
+now records a classifier deadline expiry explicitly instead of rereading the clock.
+Large parametrized cases have short IDs. A fourth Windows-only failure,
+test_concurrent_enrichment_records_one_hash, came from localhost resolving to IPv6
+first (10 second connects); the local .env now uses 127.0.0.1. Consider changing
+.env.example to 127.0.0.1 for Windows developers. Full suite: 739 passed, 0 failed.

@@ -70,7 +70,7 @@ def test_grouped_classifier_is_one_request_with_no_fabricated_probabilities():
         "null",
         '{"answers":[]}',
         '{"answers":{}} extra',
-        "x" * 65537,
+        pytest.param("x" * 65537, id="oversized"),
         '{"answers":{},"extra":true}',
         '{"answers":{},"answers":{}}',
         RuntimeError("private-provider-detail"),
@@ -261,7 +261,8 @@ def test_late_classifier_never_reaches_reply_model_or_tools(db_session):
             db_session, context, "show the timeline", profile=TurnProfile(2, 2, 0.1, 1, 0)
         )
         assert result.reason == "unavailable" and monotonic() - started < 1
-        assert 0 < budgets[0] <= 0.1
+        # Budget is deadline minus now; allow float rounding of the 0.1 s profile.
+        assert 0 < budgets[0] <= 0.1 + 1e-6
         release.set()
         assert finished.wait(1)
         assert not model.requests
