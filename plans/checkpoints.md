@@ -32,7 +32,7 @@ explicit authorization covering the action and target.
 
 ## Current position
 
-Latest implementation verification: **758 of 758 tests passed on 2026-10-31**, plus
+Latest implementation verification: **778 of 778 tests passed on 2026-10-31**, plus
 Ruff lint/format and alembic check against the isolated PostgreSQL test database.
 The database container is healthy. Both local databases are at revision
 0026 with clean drift checks; the merge graph was verified (A-020) and the
@@ -42,8 +42,8 @@ latest test-only 0026 -> 0025 -> 0026 round trip passed. Compose validation pass
 | --- | --- | --- | --- |
 | 0: Foundation | Complete | Passed | Required local startup verified |
 | 1: Contracts and safety | Safety core done; provider composition partial | Core and adapter mocks passed | Provider checks incomplete |
-| 2: Shared runtime | Chat/gateway/internal voice core done; external voice binding pending | Core and persistence checks passed | Complete chat/voice flow pending |
-| 3: Voice transport | Call/challenge/follow-up core and status receipts done; turn bridge pending | Implemented scope passed | Real verification call pending |
+| 2: Shared runtime | Chat/gateway/voice core and authenticated turn binding done | Core and persistence checks passed | Complete chat/voice flow pending |
+| 3: Voice transport | Calls, challenges, status receipts, turn route and operator dispatch done | Implemented scope passed | Real verification call pending |
 | 4: CI and timeline | Ingress, leased log grouping, CI read tools, ownership, owner outbox and manual creation implemented | Ingress checks passed | Real incident/alert/timeline pending |
 | 5: Claims and escalation | Claims, merge evidence, claim_check answers, detection, escalation advice and dispatch guards done; live dispatch and tuning pending | Passed | Pending |
 | 6: Resolution and confirmation | Standing constraints, agent negotiation and confirmed rerun/cancel implemented; dispatch pending | Implemented domain scope passed | Pending |
@@ -64,8 +64,8 @@ The configured tunnel/webhook returned HTTP 401 initially, then HTTP 422 after
 configuration changes. Payload validation remains unresolved; do not mark
 callback processing, the conversation bridge or real-call acceptance complete.
 
-Next demo-critical build: the authenticated Bolna turn route (teammate, A-013/A-014),
-then compose create_call_service into an explicit dispatch path. Owner alerts, claims,
+Next demo-critical step: live acceptance. Configure the Bolna agent for the turn route
+(README, Bolna voice turn route) and place one explicitly authorized call. Owner alerts, claims,
 claim_check answers, escalation preparation and confirmed CI actions are implemented
 offline; all of their live acceptance remains incomplete.
 The optional classifier is implemented but disabled by default until explicitly
@@ -119,8 +119,9 @@ Target: Oct 18 to 19. Prerequisite: Phase 0.
   implemented and composed behind an explicit opt-in switch (A-022).
 - [x] P0 usability/intent schemas and deterministic mission allowlists.
 - [x] Implemented feature settings: operator, LLM, Caspian, Bolna adapter and GitHub HMAC.
-- [ ] Remaining voice route credentials. Jev runtime settings were dropped with the
-  plan change on 2026-10-27 (A-022).
+- [x] Voice route credentials: SVAAR_VOICE_TURN_MODE and a separate 32+ character
+  SVAAR_VOICE_TURN_TOKEN, validated with the LLM settings. Jev runtime settings were
+  dropped with the plan change on 2026-10-27 (A-022).
 - [ ] Operator reconciliation path for uncertain external execution (A-006).
 - [ ] Close outstanding implementation-design decisions recorded in A-007.
 
@@ -169,7 +170,9 @@ Target: Oct 20 to 21. Prerequisites: identity/action gate and selected transport
 - [x] Heuristic-first speech precheck and at most one grouped classifier request
   per voice turn, bounded by the existing deadline, with per-slot fallback/audit.
 - [x] Gateway polling, persistent cursor, stream ownership, shutdown and heartbeat health.
-- [ ] External authenticated voice call-reference and retry-index mapping (A-013).
+- [x] Authenticated voice call-reference and retry-index mapping: the llm_endpoint
+  index is the count of earlier caller messages in replayed history (A-013, A-028).
+- [ ] Live verification that Bolna delivers the reference and stable history (A-028).
 - [ ] Voice confirmation ticket delivery and operator recovery tooling (A-006/A-013).
 - [ ] Bound/verify remaining synchronous provider handlers for the full voice budget (A-009).
 
@@ -216,18 +219,23 @@ Target: Oct 22 to 23. Prerequisite: shared runner and identity/action boundaries
 - [x] Failed/unanswered status receipts queue one verified private outbox follow-up
   per call, atomically with the receipt; absent/ambiguous routes queue nothing.
 - [x] Internal hashed call-reference resolver delegates to the guarded indexed runner.
-- [ ] Verify provider delivery of reference/retry identity and implement its authenticated turn route.
+- [x] Authenticated turn route: POST /voice/llm/chat/completions streams OpenAI deltas
+  (llm_endpoint) or POST /voice/turn (function); only the configured mode is mounted.
+- [ ] Verify provider delivery of reference/retry identity on a real call (A-028).
 - [x] Implement status receipt authentication, direct peer-IP checks and durable dedupe.
 - [x] Restricted Cloudflare loopback status listener with scoped edge-header checks.
 - [ ] Verify real Cloudflare ingress and implement operator balance alerts.
 - [ ] Match failed/no-answer/busy terminal call state to PLAN.md section 10 (A-021).
 - [ ] Classify completed transcripts, persist evidence and apply retention policy.
-- [ ] Wire account readiness, authorized call scheduling/limits and production placement.
+- [x] Explicit operator placement (python -m svaar.dispatch) with readiness, incident/claim
+  rechecks and per-recipient limits; nothing dials automatically.
+- [ ] Automatic call scheduling from prepared intents (not implemented by design yet).
 - [ ] Implement transcript retention and voice confirmation-ticket notification delivery.
 - [x] Implement a status-only tunnel entry point with operator/docs routes absent.
 - [x] User launched the restricted tunnel and configured the hosted status webhook.
 - [ ] Teammate handoff: resolve the dashboard sample HTTP 422 and verify accepted
-  callback processing against a stored Svaar execution (A-014).
+  callback processing against a stored Svaar execution (A-014). Likely cause: the
+  dashboard sample carries placeholder IDs; a real execution should validate (A-028).
 
 ### Offline verification
 
@@ -239,7 +247,8 @@ Target: Oct 22 to 23. Prerequisite: shared runner and identity/action boundaries
 - [x] Failure follow-up routing, dedupe, recipient revocation and missing-route cases pass.
 - [x] Status route authentication, peer-IP rejection, concurrent dedupe, replay/reordering
   and transaction rollback tests.
-- [ ] Provider turn-route authentication and transcript retention tests.
+- [x] Provider turn-route authentication, mounting, fail-closed reference and retry tests.
+- [ ] General per-turn transcript retention limit and tests (claim answers are purged).
 - [ ] Production call scheduler/readiness and notification timing tests.
 
 ### Live acceptance
@@ -1321,3 +1330,30 @@ failure joins it, and an active duplicate returns 409 under the same advisory lo
 No observed event is fabricated; the timeline stays empty until CI facts arrive. The
 owner alert is queued atomically through the existing outbox; missing routes queue
 nothing. Verification: 758 of 758 tests passed; Ruff passed. No schema change.
+
+
+## 2026-10-31: Bolna voice turn route and operator dispatch
+
+Built on the user's instruction not to wait for the teammate. Contracts were read from
+Bolna's docs first: a custom LLM gets OpenAI chat completions at
+{base_url}/chat/completions with Bearer auth and must stream deltas ending in
+data: [DONE]; user_data keys fill {{variable}} prompt placeholders. Prompt delivery to
+the custom LLM, execution IDs in requests and retry behaviour are undocumented (A-028).
+
+- voice/turns.py mounts only the configured route. llm_endpoint: /voice/llm/models and
+  /voice/llm/chat/completions; the call reference is read from a svaar_call_ref marker
+  in the system message, the turn index from the count of earlier caller messages, and
+  the reply streams as a role chunk, a content chunk, a stop chunk and [DONE]. Missing
+  or ambiguous references, an empty utterance or a non-user final message get the fixed
+  refusal without running the agent. function: /voice/turn sequences arrivals.
+- Bearer SVAAR_VOICE_TURN_TOKEN, constant time, separate from all other credentials.
+- ReferencedTurnRunner activates a queued placed call on its first authenticated turn,
+  so a late or rejected in-progress callback cannot strand a live call.
+- The restricted Cloudflare listener also serves the configured turn route and starts
+  the shared agent only when a turn mode is set; docs, health and operator routes stay
+  absent there.
+- python -m svaar.dispatch lists pending intents and places or refreshes one named call
+  through create_call_service, after Bolna readiness. It never prints phone numbers.
+
+Verification: 778 of 778 tests passed; Ruff passed. No Bolna configuration was
+changed and no call, message or provider request was made. Live acceptance is pending.

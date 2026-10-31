@@ -46,7 +46,7 @@ def test_reference_resolves_only_stored_call_id(session_factory):
 
 
 @pytest.mark.parametrize(
-    "change", ["pending", "queued", "placing", "failed", "unknown", "execution", "agent", "hash"]
+    "change", ["pending", "placing", "failed", "unknown", "execution", "agent", "hash"]
 )
 def test_unplaced_or_ineligible_calls_never_reach_runner(session_factory, change):
     identifier = prepare(session_factory)
@@ -67,6 +67,20 @@ def test_unplaced_or_ineligible_calls_never_reach_runner(session_factory, change
         == REFUSAL
     )
     assert runner.calls == []
+
+
+def test_first_authenticated_turn_activates_a_queued_placed_call(session_factory):
+    # A provider receipt plus a resolvable reference proves placement; the turn
+    # itself shows the call connected even if the in-progress callback is late.
+    identifier = prepare(session_factory)
+    with session_factory() as session:
+        session.get(VoiceCall, identifier).state = "queued"
+        session.commit()
+    runner = Runner()
+    reply = ReferencedTurnRunner(session_factory, runner).run_turn(REFERENCE, "hello", turn_index=0)
+    assert reply != REFUSAL and len(runner.calls) == 1
+    with session_factory() as session:
+        assert session.get(VoiceCall, identifier).state == "active"
 
 
 @pytest.mark.parametrize(

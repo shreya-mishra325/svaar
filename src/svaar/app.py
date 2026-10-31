@@ -37,8 +37,10 @@ from svaar.voice.calls import (
 )
 from svaar.voice.contracts import TurnRunner
 from svaar.voice.provider import VoiceProvider
+from svaar.voice.references import ReferencedTurnRunner
 from svaar.voice.runtime import VoiceRuntime
 from svaar.voice.status import router as voice_status_router
+from svaar.voice.turns import turn_router
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +59,10 @@ def create_app(settings: Settings | None = None, *, status_ingress: bool = False
         loop = None
         logger.info("application_started")
         try:
-            if settings.llm_model is not None and not status_ingress:
+            # The restricted listener starts the agent only to serve the turn route.
+            if settings.llm_model is not None and (
+                not status_ingress or settings.voice_turn_mode is not None
+            ):
                 model = HttpChatModel.from_settings(settings)
                 dispatcher = Dispatcher(
                     build_registry(
@@ -100,6 +105,11 @@ def create_app(settings: Settings | None = None, *, status_ingress: bool = False
                 else None
             )
             app.state.voice_turn_runner = runner
+            app.state.voice_reference_runner = (
+                ReferencedTurnRunner(app.state.session_factory, runner)
+                if runner is not None
+                else None
+            )
             yield
         finally:
             try:
@@ -108,6 +118,8 @@ def create_app(settings: Settings | None = None, *, status_ingress: bool = False
                 if model is not None:
                     await run_in_threadpool(model.close)
             finally:
+                if hasattr(app.state, "voice_reference_runner"):
+                    del app.state.voice_reference_runner
                 if hasattr(app.state, "voice_turn_runner"):
                     del app.state.voice_turn_runner
                 if hasattr(app.state, "chat_runtime"):
@@ -142,6 +154,8 @@ def create_app(settings: Settings | None = None, *, status_ingress: bool = False
     else:
         app.include_router(health_router)
         app.include_router(api_router)
+    if settings.voice_turn_mode is not None:
+        app.include_router(turn_router(settings.voice_turn_mode), prefix="/api/v1")
     return app
 
 

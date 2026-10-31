@@ -978,3 +978,27 @@ Large parametrized cases have short IDs. A fourth Windows-only failure,
 test_concurrent_enrichment_records_one_hash, came from localhost resolving to IPv6
 first (10 second connects); the local .env now uses 127.0.0.1. Consider changing
 .env.example to 127.0.0.1 for Windows developers. Full suite: 739 passed, 0 failed.
+
+
+## A-028: Bolna turn route built from partial documentation
+
+- Added 2026-10-31. Implemented and verified offline only; live acceptance pending.
+- Documented: custom LLM base_url, Bearer-only auth, streamed OpenAI deltas ending in
+  data: [DONE], public endpoints only; user_data keys fill {{variable}} prompt
+  placeholders; status webhooks carry UUID id and agent_id. Sources:
+  https://www.bolna.ai/docs/customizations/using-custom-llm
+  https://www.bolna.ai/docs/tool-calling/custom-function-variables
+  https://www.bolna.ai/docs/post-call/execution-payload
+- Undocumented, so unverified: whether the agent prompt is sent as a system message with
+  {{call_ref}} filled in, whether Bolna retries or merges caller messages, and request
+  timeouts. Requests without exactly one svaar_call_ref marker fail closed.
+- Turn identity: llm_endpoint uses the count of caller messages in replayed history. If
+  Bolna merges or drops caller messages, the runtime refuses the gapped or conflicting
+  index rather than guessing. Function mode has no retry identity; arrivals are
+  sequenced, so a provider retry would run as a new turn.
+- Design change for the voice teammate: an authenticated turn now activates a queued
+  call that already has a provider receipt. Previously only the in-progress callback
+  did; the earlier dashboard 422 most likely came from the sample's placeholder IDs.
+- Svaar replies only after the full turn (up to the 8 second voice deadline); a role
+  chunk is sent first. Token-level streaming is not implemented.
+- Owner: Unassigned.

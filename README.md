@@ -1044,3 +1044,39 @@ repository:
 owner_principal_id is optional and defaults to the repository mapping's owner. A later
 CI failure for the same workflow and branch joins this incident; a second active
 incident for them returns 409. The owner receives the usual private alert.
+
+
+### Bolna voice turn route
+
+Svaar can act as the Bolna agent's custom LLM. Set these locally, then restart:
+
+```sh
+SVAAR_VOICE_TURN_MODE=llm_endpoint
+SVAAR_VOICE_TURN_TOKEN=<random 32+ characters, separate from every other secret>
+```
+
+The SVAAR_LLM_* settings must already be configured. Only the selected mode's route is
+mounted: /api/v1/voice/llm/chat/completions (and /api/v1/voice/llm/models) for
+llm_endpoint, or /api/v1/voice/turn for function. The restricted tunnel listener
+(create_status_ingress on port 8001) serves the status webhook and this route only.
+
+In Bolna, add a custom LLM with URL https://YOUR-TUNNEL-HOST/api/v1/voice/llm, model
+svaar and the turn token as its key, then select it for the agent. Add this line to the
+agent prompt so each call's private reference reaches Svaar; Svaar never speaks it:
+
+```text
+svaar_call_ref: {{call_ref}}
+```
+
+Svaar puts call_ref in user_data when it places a call. Requests without exactly one
+reference are refused without running the agent. To place a prepared call:
+
+```sh
+uv run --locked python -m svaar.dispatch --list
+uv run --locked python -m svaar.dispatch --place CALL_ID --org ORG_ID
+```
+
+--place dials a real phone after checking Bolna readiness, the incident or claim, and
+SVAAR_VOICE_DAILY_CALL_LIMIT. Use it only with explicit authorization for that call.
+Whether Bolna delivers the prompt reference and stable history is unverified until the
+first real call (plans/anomaly.md A-028).
