@@ -100,7 +100,7 @@ def test_normal_app_never_trusts_cloudflare_header(settings):
 def test_allowed_ingress_reaches_existing_status_handler(settings, monkeypatch):
     seen = []
 
-    def ingest(sessions, payload, raw, notify):
+    def ingest(sessions, payload, raw, notify, notify_requester=None):
         seen.append(payload.status)
         return "duplicate"
 

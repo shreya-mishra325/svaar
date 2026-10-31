@@ -31,7 +31,8 @@ from svaar.incidents.models import Claim, ClaimAnswer, ClaimEvidence, Incident
 ANSWER_RULE = "claim-answer-v1"
 # Only these labels can justify a stance; unsure, wrong_person and callback cannot.
 ANSWER_STANCES = {"confirmed": "supports", "denied": "contradicts"}
-PrepareClaimCall = Callable[[Session, uuid.UUID, uuid.UUID, uuid.UUID], uuid.UUID | None]
+# (session, org_id, recipient_id, claim_id, requested_by) -> call ID or None.
+PrepareClaimCall = Callable[[Session, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID], uuid.UUID | None]
 
 
 class VerifyClaimArguments(BaseModel):
@@ -87,7 +88,9 @@ def verify_claim_tool(prepare_call: PrepareClaimCall) -> ToolSpec:
             }
         if get_principal(call.session, org_id, claim.author_id) is None:
             return {"found": True, "prepared": False, "reason": "author_unavailable"}
-        call_id = prepare_call(call.session, org_id, claim.author_id, claim.id)
+        call_id = prepare_call(
+            call.session, org_id, claim.author_id, claim.id, call.context.principal_id
+        )
         if call_id is None:
             return {"found": True, "prepared": False, "reason": "no_verified_phone_or_check_open"}
         return {

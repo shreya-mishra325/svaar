@@ -926,6 +926,9 @@ The teammate's voice wiring remains separate and unchanged.
   the classifier timeout. This is a background job, not a request path.
 - verify_claim calls the claim author; tier 2 applies when that author is not the
   incident owner. Intents are prepared on request only; there is no automatic dialer.
+  The requester is recorded and receives one notice if the call fails. Polling
+  reconciliation through CallService.refresh does not send these notices; only the
+  authenticated status webhook does.
 - Merge evidence needs a pull_number on the claim and a merge no earlier than the
   incident opened. The GitHub App/webhook must subscribe to pull_request events; that
   subscription is unconfigured and unverified.

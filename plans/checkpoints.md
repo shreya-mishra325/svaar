@@ -32,11 +32,11 @@ explicit authorization covering the action and target.
 
 ## Current position
 
-Latest implementation verification: **739 of 739 tests passed on 2026-10-31**, plus
+Latest implementation verification: **752 of 752 tests passed on 2026-10-31**, plus
 Ruff lint/format and alembic check against the isolated PostgreSQL test database.
 The database container is healthy. Both local databases are at revision
-0025 with clean drift checks; the merge graph was verified (A-020) and the
-latest test-only 0025 -> 0023 -> 0025 round trip passed. Compose validation passed. The existing Starlette warning is A-004.
+0026 with clean drift checks; the merge graph was verified (A-020) and the
+latest test-only 0026 -> 0025 -> 0026 round trip passed. Compose validation passed. The existing Starlette warning is A-004.
 
 | Phase | Implementation | Offline verification | Live acceptance |
 | --- | --- | --- | --- |
@@ -343,7 +343,8 @@ Live dialing and every live acceptance item remain pending (A-024, A-025).
 - [x] Completed-call answers are classified once by the claim-answer slot; only a
   confident model confirmed/denied becomes evidence, and status is derived from it.
 - [x] Missing evidence, unusable speech, fallback/low-confidence answers and failed or
-  unanswered calls stay unverified; answer text is purged once finalized.
+  unanswered calls stay unverified; answer text is purged once finalized. A failed
+  claim_check call also notifies its requester once (PLAN.md section 10).
 - [x] Guarded preparation jobs, row claiming, durable incident-bound intents,
   confirmed-delivery grace and per-recipient preparation cooldown (A-024).
 - [x] Dispatch-time recheck of incident ownership/open state and claim status, a
@@ -1287,3 +1288,23 @@ classifier requests were made.
   concurrency barrier in test_log_enrichment and slowed the suite.
 
 Verification: 739 passed, 0 failed (full suite, 4 min 53 s); Ruff format/lint passed.
+
+
+## 2026-10-31: Phase 5 plan-gap closure
+
+A requirements review against PLAN.md sections 10 and 17 found three gaps, now closed:
+
+- Section 10: a failed claim_check call (no-answer, busy, failed, canceled, stopped,
+  error) now tells the requester. Migration 0026 adds voice_calls.requested_by;
+  verify_claim records the requesting principal. The status receipt queues one private
+  "claim stays unverified" notice to the requester, keyed per call and atomic with the
+  receipt, in addition to the existing notice to the person called.
+- Section 17, grouped decisions: a test proves a malformed CI category answer falls back
+  and is audited as invalid while the valid escalation answer in the same request is
+  kept and applied.
+- Section 17, CI classification and escalation: every allowed label of both slots
+  validates and invented labels do not.
+
+Verification: 752 of 752 tests passed; Ruff format/lint passed; test-only round
+trip 0026 -> 0025 -> 0026 and alembic check on both databases passed. No live provider
+requests, calls or messages were made.

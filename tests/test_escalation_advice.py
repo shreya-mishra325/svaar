@@ -10,7 +10,8 @@ from test_escalation_jobs import NOW, calls, escalation_scope
 from svaar.agent.models import OutboxMessage
 from svaar.agent.notifications import delivered_incident_alert_at, enqueue_escalation_nudge
 from svaar.decisions.models import DecisionRecord
-from svaar.decisions.questions import Question
+from svaar.decisions.policy import is_valid
+from svaar.decisions.questions import CI_FAILURE_CATEGORY, ESCALATION_STEP, Question
 from svaar.decisions.service import DecisionService
 from svaar.decisions.types import Decision
 from svaar.jobs.escalation import EscalationWorker
@@ -111,3 +112,26 @@ def test_heuristic_fallback_never_delays_escalation(session_factory, scope):
     with session_factory() as session:
         assert set(session.scalars(select(DecisionRecord.source))) == {"fallback"}
         assert session.scalar(select(EscalationJob.advised_at)) is not None
+
+
+@pytest.mark.parametrize(
+    ("question", "label"),
+    [(q, label) for q in (CI_FAILURE_CATEGORY, ESCALATION_STEP) for label in q.labels],
+)
+def test_every_allowed_label_validates(question, label):
+    assert is_valid(Decision(question.name, label, 0.9), question)
+    assert not is_valid(Decision(question.name, label + "_invented", 0.9), question)
+
+
+def test_malformed_category_keeps_the_valid_escalation_answer(session_factory, scope):
+    engine = Advice("not_a_category", "wait")
+    assert advised(session_factory, engine).run_once()["deferred"] == 1
+    assert engine.calls == [("ci_failure_category", "escalation_step")]
+    with session_factory() as session:
+        rows = {row.question: row for row in session.scalars(select(DecisionRecord))}
+        category, step = rows["ci_failure_category"], rows["escalation_step"]
+        assert (category.source, category.fallback_reason) == ("fallback", "invalid_answer")
+        assert category.answer == "unknown"
+        assert (step.source, step.answer, step.fallback_reason) == ("model", "wait", None)
+        assert session.scalar(select(EscalationJob.reason)) == "advised_wait"
+    assert calls(session_factory) == []

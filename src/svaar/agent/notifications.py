@@ -197,3 +197,25 @@ def enqueue_escalation_nudge(
         key=f"escalation-nudge:{incident_id}",
         body=body,
     )
+
+
+CLAIM_CHECK_FAILURE_FOLLOW_UP = (
+    "A claim verification call you requested did not complete. The claim stays "
+    "unverified; this call outcome does not verify or contradict it."
+)
+
+
+def enqueue_claim_check_failure(
+    session: Session,
+    org_id: uuid.UUID,
+    requester_id: uuid.UUID,
+    call_id: uuid.UUID,
+) -> bool:
+    """Queue one private notice per failed claim_check call to its requester."""
+    return enqueue_private_notification(
+        session,
+        org_id=org_id,
+        principal_id=requester_id,
+        key=f"claim-check-failure:{call_id}",
+        body=CLAIM_CHECK_FAILURE_FOLLOW_UP,
+    )

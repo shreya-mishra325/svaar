@@ -311,9 +311,16 @@ def prepare_claim_check_call(
     org_id: uuid.UUID,
     principal_id: uuid.UUID,
     claim_id: uuid.UUID,
+    requested_by: uuid.UUID,
 ) -> uuid.UUID | None:
-    """Prepare one pending claim_check intent; at most one open check per claim, no dial."""
-    if get_principal(session, org_id, principal_id) is None:
+    """Prepare one pending claim_check intent; at most one open check per claim, no dial.
+
+    The requester is recorded only so a failed call can be reported back to them.
+    """
+    if (
+        get_principal(session, org_id, principal_id) is None
+        or get_principal(session, org_id, requested_by) is None
+    ):
         return None
     phone = _single_verified_phone(session, principal_id)
     if phone is None:
@@ -322,6 +329,7 @@ def prepare_claim_check_call(
         org_id=org_id,
         principal_id=principal_id,
         claim_id=claim_id,
+        requested_by=requested_by,
         mission=Mission.CLAIM_CHECK.value,
         phone_binding_id=phone.id,
     )

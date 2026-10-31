@@ -12,7 +12,11 @@ from svaar.actions.catalog import build_registry
 from svaar.actions.dispatcher import ApprovalPolicy, Dispatcher
 from svaar.agent.llm import HttpChatModel
 from svaar.agent.loop import AgentLoop
-from svaar.agent.notifications import enqueue_call_failure, enqueue_voice_fallback
+from svaar.agent.notifications import (
+    enqueue_call_failure,
+    enqueue_claim_check_failure,
+    enqueue_voice_fallback,
+)
 from svaar.agent.runtime import ChatRuntime
 from svaar.agent.voice_runner import VoiceAgentExecutor
 from svaar.api.errors import ErrorResponse, install_error_handlers
@@ -130,6 +134,7 @@ def create_app(settings: Settings | None = None, *, status_ingress: bool = False
     )
     app.state.cloudflare_status_ingress = status_ingress
     app.state.voice_failure_notifier = enqueue_call_failure
+    app.state.voice_requester_notifier = enqueue_claim_check_failure
     app.state.settings = settings
     install_error_handlers(app)
     if status_ingress:

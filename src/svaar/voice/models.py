@@ -65,6 +65,7 @@ class VoiceCall(Base):
     principal_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("principals.id"))
     incident_id: Mapped[uuid.UUID | None] = mapped_column()
     claim_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("claims.id"))
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("principals.id"))
     phone_binding_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("channel_bindings.id"))
     phone_challenge_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("phone_challenges.id"), unique=True

@@ -12,7 +12,7 @@ import pytest
 from factories import make_org, make_principal
 from sqlalchemy import func, select
 from test_agent_loop import FakeEngine, FakeModel, proposal
-from test_incidents import deliver, incidents, run
+from test_incidents import chat_route, deliver, incidents, run
 from test_voice_calls import Provider
 
 from svaar.actions.catalog import build_registry
@@ -22,6 +22,8 @@ from svaar.actions.models import ToolStatus
 from svaar.actions.registry import Channel, ToolContext
 from svaar.agent.llm import ModelReply
 from svaar.agent.loop import AgentLoop
+from svaar.agent.models import OutboxMessage
+from svaar.agent.notifications import enqueue_call_failure, enqueue_claim_check_failure
 from svaar.agent.voice_runner import VoiceAgentExecutor
 from svaar.decisions.models import DecisionRecord
 from svaar.decisions.questions import Question
@@ -36,6 +38,7 @@ from svaar.jobs.claim_checks import ClaimAnswerWorker
 from svaar.voice.calls import CallService, claim_check_outcome, prepare_claim_check_call
 from svaar.voice.models import VoiceCall
 from svaar.voice.runtime import VoiceRuntime
+from svaar.voice.status import StatusPayload, ingest_status
 
 pytestmark = pytest.mark.postgres
 NOW = datetime.now(UTC)
@@ -363,3 +366,63 @@ def test_claim_checks_fail_closed_at_dispatch_without_a_current_guard(session_fa
         session.get(Claim, scope[4]).status = "unverified"
     assert guarded.place(scope[0], call.id) == "queued"
     assert provider.placements[0][0] == "+15555550123"
+
+
+@pytest.mark.parametrize("status", ["no-answer", "busy", "failed"])
+def test_failed_check_is_reported_once_to_the_requester(session_factory, status):
+    with session_factory.begin() as session:
+        org = make_org(session)
+        author = chat_route(session, org, Role.DEV, "claim-author")
+        lead = chat_route(session, org, Role.LEAD, "claim-lead")
+        session.add(
+            ChannelBinding(
+                principal_id=author, channel="phone", address="+15555550124", verified_at=NOW
+            )
+        )
+        session.add(
+            RepoMapping(
+                repository_id=101, installation_id=77, org_id=org.id, owner_principal_id=author
+            )
+        )
+        org_id = org.id
+    deliver(session_factory, run())
+    [incident] = incidents(session_factory)
+    with session_factory.begin() as session:
+        claim = record_claim(
+            session,
+            org_id,
+            author,
+            ClaimInput(incident_id=incident.id, statement="The fix is merged.", kind="fix_merged"),
+            "chat-message-9",
+        )
+        scope = (org_id, author, lead, incident.id, claim.id)
+    assert verify(session_factory, scope)[1]["prepared"] is True
+    execution, agent = uuid.uuid4(), Provider.agent_id
+    with session_factory.begin() as session:
+        call = session.scalar(select(VoiceCall).where(VoiceCall.mission == "claim_check"))
+        assert call.requested_by == lead
+        call.state, call.provider_status = "queued", "queued"
+        call.execution_id, call.provider_agent_id = execution, agent
+    body = StatusPayload(id=execution, agent_id=agent, status=status)
+    for _ in range(2):  # provider redelivery
+        ingest_status(
+            session_factory,
+            body,
+            b"{}",
+            enqueue_call_failure,
+            enqueue_claim_check_failure,
+        )
+    with session_factory() as session:
+        keys = sorted(
+            key
+            for key in session.scalars(select(OutboxMessage.notification_key))
+            if key and key.startswith(("claim-check-failure:", "voice-call-failure:"))
+        )
+        assert [key.split(":")[0] for key in keys] == ["claim-check-failure", "voice-call-failure"]
+        body_text = session.scalar(
+            select(OutboxMessage.body).where(
+                OutboxMessage.notification_key.like("claim-check-failure:%")
+            )
+        )
+        assert "stays unverified" in body_text
+        assert session.get(Claim, scope[4]).status == "unverified"
