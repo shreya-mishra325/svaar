@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     escalation_after_seconds: int = Field(default=600, ge=60, le=86400)
     escalation_cooldown_seconds: int = Field(default=3600, ge=60, le=86400)
     escalation_batch_size: int = Field(default=10, ge=1, le=50)
+    # Optional local finalization of claim_check answers; never dials or sends.
+    claim_check_jobs_enabled: bool = False
 
     channel_transport: Literal["caspian", "telegram"] | None = None
     gateway_poll_seconds: float = Field(default=2.0, ge=0.1, le=30.0)

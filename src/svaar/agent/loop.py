@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from svaar.actions.dispatcher import ConfirmationTicket, Dispatcher
+from svaar.actions.missions import Mission
 from svaar.actions.registry import Channel, ToolContext
 from svaar.agent.inference import InferencePool, TurnTimeoutError
 from svaar.agent.llm import ChatModel, ModelReply, ModelUnavailableError, RetryableModelError
@@ -27,6 +28,7 @@ from svaar.decisions.questions import TRANSCRIPT_USABILITY, VOICE_INTENT, Questi
 from svaar.decisions.service import DecisionService
 from svaar.decisions.types import Decision, DecisionEngine, DecisionUnavailableError
 from svaar.identity.service import get_principal
+from svaar.incidents.claim_checks import claim_check_brief
 
 logger = logging.getLogger(__name__)
 VOICE_FALLBACK = "I can't check that right now, I will message you."
@@ -119,8 +121,16 @@ class AgentLoop:
                 if intent is None:
                     return TurnResult(CLARIFY, "clarification_required")
             specs = self.dispatcher.available_tools(session, context)
+            brief = None
+            if context.mission is Mission.CLAIM_CHECK and context.claim_id is not None:
+                brief = claim_check_brief(
+                    session, context.org_id, context.principal_id, context.claim_id
+                )
             messages: list[dict[str, Any]] = [
-                {"role": "system", "content": system_prompt(specs, spoken=spoken, intent=intent)}
+                {
+                    "role": "system",
+                    "content": system_prompt(specs, spoken=spoken, intent=intent, brief=brief),
+                }
             ]
             messages.extend(
                 {"role": item["role"], "content": item["content"]}
@@ -150,6 +160,9 @@ class AgentLoop:
                     if proposal.name in {"confirm_action", "verify_phone_code"}:
                         # A model's invented/transformed nonce is never confirmation.
                         arguments = {"code": text}
+                    if proposal.name == "record_claim_answer":
+                        # An answer is the caller's own words, never a model summary.
+                        arguments = {"answer": text}
                     result = self.dispatcher.dispatch(session, context, proposal.name, arguments)
                     if result.ticket is not None:
                         tickets.append(result.ticket)

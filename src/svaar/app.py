@@ -24,7 +24,7 @@ from svaar.decisions.classifier import StructuredClassifier
 from svaar.decisions.service import DecisionService
 from svaar.integrations.ci_actions import CiActionService
 from svaar.logging import configure_logging
-from svaar.voice.calls import prepare_phone_verification_call
+from svaar.voice.calls import prepare_claim_check_call, prepare_phone_verification_call
 from svaar.voice.contracts import TurnRunner
 from svaar.voice.runtime import VoiceRuntime
 from svaar.voice.status import router as voice_status_router
@@ -54,7 +54,8 @@ def create_app(settings: Settings | None = None, *, status_ingress: bool = False
                             app.state.session_factory, settings
                         ).execute
                         if settings.github_actions_enabled
-                        else None
+                        else None,
+                        prepare_claim_call=prepare_claim_check_call,
                     ),
                     ApprovalPolicy.from_settings(settings),
                 )

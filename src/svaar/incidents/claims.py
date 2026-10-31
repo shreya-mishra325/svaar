@@ -196,7 +196,12 @@ def claim_summary(session: Session, claim: Claim) -> dict:
         "run_attempt": claim.run_attempt,
         "head_sha": claim.head_sha,
         "evidence": [
-            {"event_id": str(row.event_id), "stance": row.stance, "rule": row.rule}
+            {
+                "event_id": str(row.event_id) if row.event_id else None,
+                "claim_answer_id": str(row.claim_answer_id) if row.claim_answer_id else None,
+                "stance": row.stance,
+                "rule": row.rule,
+            }
             for row in evidence
         ],
     }

@@ -7,6 +7,7 @@ import uuid
 from collections.abc import Callable
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from svaar.actions.missions import Mission
@@ -38,9 +39,12 @@ class CallService:
         *,
         escalation_authorized: Callable[[Session, uuid.UUID, uuid.UUID, uuid.UUID], bool]
         | None = None,
+        claim_check_authorized: Callable[[Session, uuid.UUID, uuid.UUID, uuid.UUID], bool]
+        | None = None,
     ) -> None:
         self.sessions, self.provider = sessions, provider
         self.escalation_authorized = escalation_authorized
+        self.claim_check_authorized = claim_check_authorized
 
     def _phone(self, session: Session, call: VoiceCall) -> str | None:
         if call.mission == Mission.PHONE_VERIFY.value:
@@ -56,6 +60,16 @@ class CallService:
                 call.org_id,
                 call.principal_id,
                 call.incident_id,
+            ):
+                return None
+        if call.mission == Mission.CLAIM_CHECK.value:
+            # Without a composed guard, claim checks fail closed at dispatch time.
+            if (
+                call.claim_id is None
+                or self.claim_check_authorized is None
+                or not self.claim_check_authorized(
+                    session, call.org_id, call.principal_id, call.claim_id
+                )
             ):
                 return None
         binding = session.get(ChannelBinding, call.phone_binding_id)
@@ -237,3 +251,62 @@ def prepare_escalation_call(
     session.add(call)
     session.flush()
     return call.id
+
+
+def _single_verified_phone(session: Session, principal_id: uuid.UUID) -> ChannelBinding | None:
+    phones = session.scalars(
+        select(ChannelBinding)
+        .where(
+            ChannelBinding.principal_id == principal_id,
+            ChannelBinding.channel == "phone",
+            ChannelBinding.verified_at.is_not(None),
+        )
+        .limit(2)
+    ).all()
+    if len(phones) != 1 or not re.fullmatch(r"\+[1-9][0-9]{7,14}", phones[0].address):
+        return None
+    return phones[0]
+
+
+def prepare_claim_check_call(
+    session: Session,
+    org_id: uuid.UUID,
+    principal_id: uuid.UUID,
+    claim_id: uuid.UUID,
+) -> uuid.UUID | None:
+    """Prepare one pending claim_check intent; at most one open check per claim, no dial."""
+    if get_principal(session, org_id, principal_id) is None:
+        return None
+    phone = _single_verified_phone(session, principal_id)
+    if phone is None:
+        return None
+    call = VoiceCall(
+        org_id=org_id,
+        principal_id=principal_id,
+        claim_id=claim_id,
+        mission=Mission.CLAIM_CHECK.value,
+        phone_binding_id=phone.id,
+    )
+    try:
+        with session.begin_nested():
+            session.add(call)
+            session.flush()
+    except IntegrityError:
+        return None  # Another check for this claim is still open.
+    return call.id
+
+
+def claim_check_outcome(session: Session, org_id: uuid.UUID, call_id: uuid.UUID) -> str:
+    """Report completed, failed or open from receipts only; never from caller words."""
+    call = session.scalar(
+        select(VoiceCall).where(
+            VoiceCall.id == call_id,
+            VoiceCall.org_id == org_id,
+            VoiceCall.mission == Mission.CLAIM_CHECK.value,
+        )
+    )
+    if call is None or call.state == "failed":
+        return "failed"
+    if call.state == "closed":
+        return "completed" if call.provider_status == "completed" else "failed"
+    return "open"

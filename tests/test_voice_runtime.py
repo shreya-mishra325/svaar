@@ -126,7 +126,7 @@ def test_unusable_speech_has_saved_clarification_without_tools(session_factory, 
 
 def test_mission_never_expands_from_intent(session_factory, call_id):
     with session_factory() as session:
-        session.get(VoiceCall, uuid.UUID(call_id)).mission = "claim_check"
+        session.get(VoiceCall, uuid.UUID(call_id)).mission = "confirmation"
         session.commit()
     model = FakeModel(proposal(), ModelReply("Please clarify."))
     runtime, loop = build(session_factory, model, FakeEngine())

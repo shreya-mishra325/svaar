@@ -231,7 +231,7 @@ def test_available_tools_follow_role_channel_and_mission(
     chat = {spec.name for spec in dispatcher.available_tools(db_session, context(ops))}
     assert "rerun" not in chat and {"whoami", "probe", "confirm_action"} <= chat
     voice = dispatcher.available_tools(db_session, context(ops, Channel.VOICE, Mission.CLAIM_CHECK))
-    assert voice == []
+    assert [spec.name for spec in voice] == ["record_claim_answer"]
 
 
 # Tier-2 confirmation flow.

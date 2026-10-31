@@ -17,6 +17,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     func,
     text,
@@ -182,12 +183,43 @@ class ClaimEvidence(Base):
     __tablename__ = "evidence"
     __table_args__ = (
         UniqueConstraint("claim_id", "event_id", name="uq_evidence_claim_event"),
+        UniqueConstraint("claim_id", "claim_answer_id", name="uq_evidence_claim_answer"),
         CheckConstraint("stance IN ('supports', 'contradicts')", name="stance_valid"),
+        CheckConstraint("(event_id IS NULL) <> (claim_answer_id IS NULL)", name="one_source"),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id"), index=True)
     claim_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("claims.id"), index=True)
-    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"))
+    event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("events.id"))
+    claim_answer_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("claim_answers.id"))
     stance: Mapped[str] = mapped_column(String(16))
     rule: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ClaimAnswer(Base):
+    """A claim author's answer from one claim_check call; never evidence by itself.
+
+    The raw answer text is kept only until the completed call is classified, then
+    purged; the hash, label and decision audit reference remain.
+    """
+
+    __tablename__ = "claim_answers"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('recorded', 'evidence', 'unverified', 'discarded')", name="state_valid"
+        ),
+        CheckConstraint("(state = 'recorded') = (answer_text IS NOT NULL)", name="retention_valid"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id"))
+    claim_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("claims.id"), index=True)
+    call_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("voice_calls.id"), unique=True)
+    principal_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("principals.id"))
+    answer_hash: Mapped[str] = mapped_column(String(64))
+    answer_text: Mapped[str | None] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(String(16), default="recorded")
+    label: Mapped[str | None] = mapped_column(String(16))
+    decision_id: Mapped[uuid.UUID | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
