@@ -162,6 +162,9 @@ class Claim(Base):
             "status IN ('confirmed', 'contradicted', 'unverified')", name="status_valid"
         ),
         CheckConstraint("kind IN ('workflow_succeeded', 'fix_merged')", name="kind_valid"),
+        CheckConstraint(
+            "pull_number IS NULL OR kind = 'fix_merged'", name="pull_number_target_valid"
+        ),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orgs.id"), index=True)
@@ -174,6 +177,7 @@ class Claim(Base):
     run_id: Mapped[int | None] = mapped_column(BigInteger)
     run_attempt: Mapped[int | None] = mapped_column(Integer)
     head_sha: Mapped[str | None] = mapped_column(String(64))
+    pull_number: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

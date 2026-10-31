@@ -193,7 +193,8 @@ def list_claims(call: ToolCall) -> Mapping[str, Any]:
 RECORD_CLAIM = ToolSpec(
     "record_claim",
     "Record a caller's verifiable status assertion, not proof. Use the exact run and "
-    "attempt for workflow success. Merge claims stay unverified without merge evidence.",
+    "attempt for workflow success, and the pull request number for a merged fix. "
+    "Claims stay unverified without matching recorded evidence.",
     claims.ClaimInput,
     record_claim,
     ALL_ROLES,
