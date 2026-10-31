@@ -32,7 +32,7 @@ explicit authorization covering the action and target.
 
 ## Current position
 
-Latest implementation verification: **778 of 778 tests passed on 2026-10-31**, plus
+Latest implementation verification: **779 of 779 tests passed on 2026-10-31**, plus
 Ruff lint/format and alembic check against the isolated PostgreSQL test database.
 The database container is healthy. Both local databases are at revision
 0026 with clean drift checks; the merge graph was verified (A-020) and the
@@ -360,8 +360,8 @@ Live dialing and every live acceptance item remain pending (A-024, A-025).
 - [x] Dispatch-time recheck of incident ownership/open state and claim status, a
   readiness gate and a per-recipient 24-hour call limit, composed by
   create_call_service (offline; A-027).
-- [ ] Live dispatch: no route, job or tool invokes placement yet; live readiness,
-  limits and placement remain unverified (A-024, A-027).
+- [ ] Live dispatch: placement is operator-run only (python -m svaar.dispatch --place);
+  live readiness, limits and placement remain unverified (A-024, A-027).
 - [x] CI failure category and adaptive escalation asked together once per job, each
   validated and audited separately; advice can delay one grace period, never hasten.
 - [ ] Labelled evaluation set and threshold tuning for these slots (plan section 9).
@@ -1357,3 +1357,18 @@ the custom LLM, execution IDs in requests and retry behaviour are undocumented (
 
 Verification: 778 of 778 tests passed; Ruff passed. No Bolna configuration was
 changed and no call, message or provider request was made. Live acceptance is pending.
+
+## 2026-10-31: Deterministic approval-set serialization
+
+CI on Linux failed test_resolution_tools intermittently: required_approvals was a
+frozenset, serialized in per-process string-hash order, so a stored negotiation snapshot
+could differ from its source constraints. The same order fed tier-2 confirmation hashes
+for proposals carrying approvals. Approval sets now serialize sorted; a regression test
+covers both models. Resolution tests passed under six PYTHONHASHSEED values.
+
+Separately observed once in a full local run and passing on rerun:
+test_ci_jobs::test_different_log_signatures_do_not_merge_failures. Suspected cause, not
+yet confirmed: the test freezes its clock about one second ahead, then ingests a second
+job, which a slow run can create after the frozen time. Test-only; not yet fixed.
+
+Verification: 779 of 779 tests passed; Ruff passed.
