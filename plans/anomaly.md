@@ -1118,3 +1118,37 @@ metadata; ignored Render control URL was normalized to psycopg with required TLS
 No new-channel gateway was started, no new-channel message sent, no call placed,
 and no hosted configuration/deployment changed. Only the user deploys. The
 already-approved Telegram companion was not replaced. No full-suite rerun.
+
+
+## A-032: confusing multiple dotenv files
+
+Resolved locally 2026-11-02. Single active .env, private external backups and
+updated commands; no hosted configuration changed.
+
+
+### Single local dotenv consolidation, 2026-11-02 (Phase 0 / A-032)
+
+User requested one compiled configuration. Only .env is active locally;
+.env.example remains a blank tracked template. Six original files were backed
+up outside the repository in a private directory, then redundant demo/render/
+control/test/enrollment files were removed from the working folder. The active
+host database URL remains Render's external URL with required TLS. The old local
+URL is preserved as SVAAR_LOCAL_DATABASE_URL. Private fallback PostgreSQL and
+operator/voice credentials are preserved under SVAAR_DEMO_*; compose.demo.yaml
+maps them to the same original container values. Render dashboard's internal URL
+and hosted credentials were not changed. No credential rotation or deployment.
+
+Deployment helper defaults now validate .env rather than create another file;
+Render helper validates model/voice values without generating new credentials.
+Commands and .env.example updated. Host Settings and both resolved Compose
+configurations validated; active Render/local/fallback values matched private
+backups, with no values printed. Test URL is unset rather than retaining a stopped
+disposable test container URL. Tests must never target Render.
+
+39 focused configuration/deployment tests passed without skips; Ruff format/lint
+and git diff --check passed. Existing Starlette/httpx deprecation warning remains.
+No schema changes, database writes, provider sends, process restarts, calls or
+Git operations were performed. Old evidence below/above retains historical
+filenames and does not instruct current commands. Restart host gateways manually
+with the single .env after stopping the corresponding old process. Only the user
+deploys. This is configuration cleanup, not completion of live channel acceptance.

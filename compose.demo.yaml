@@ -18,7 +18,7 @@ x-base: &base
 
 x-db-env: &db-env
   SVAAR_ENVIRONMENT: production
-  SVAAR_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?prepare demo env}:${POSTGRES_PASSWORD:?prepare demo env}@db:5432/${POSTGRES_DB:?prepare demo env}
+  SVAAR_DATABASE_URL: postgresql+psycopg://${SVAAR_DEMO_POSTGRES_USER:?configure .env fallback values}:${SVAAR_DEMO_POSTGRES_PASSWORD:?configure .env fallback values}@db:5432/${SVAAR_DEMO_POSTGRES_DB:?configure .env fallback values}
   SVAAR_DATABASE_TIMEOUT_SECONDS: "5"
   SVAAR_LOG_LEVEL: INFO
 
@@ -37,9 +37,9 @@ services:
     image: postgres:16-bookworm
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:?prepare demo env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?prepare demo env}
-      POSTGRES_DB: ${POSTGRES_DB:?prepare demo env}
+      POSTGRES_USER: ${SVAAR_DEMO_POSTGRES_USER:?configure .env fallback values}
+      POSTGRES_PASSWORD: ${SVAAR_DEMO_POSTGRES_PASSWORD:?configure .env fallback values}
+      POSTGRES_DB: ${SVAAR_DEMO_POSTGRES_DB:?configure .env fallback values}
     volumes: [demo_postgres:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
@@ -61,7 +61,7 @@ services:
     <<: *base
     environment:
       <<: *model
-      SVAAR_OPERATOR_TOKEN: ${SVAAR_OPERATOR_TOKEN:?prepare demo env}
+      SVAAR_OPERATOR_TOKEN: ${SVAAR_DEMO_OPERATOR_TOKEN:?configure .env fallback values}
       SVAAR_BOLNA_API_KEY: ${SVAAR_BOLNA_API_KEY:-}
       SVAAR_BOLNA_AGENT_ID: ${SVAAR_BOLNA_AGENT_ID:-}
     ports: ["127.0.0.1:18000:8000"]
@@ -73,8 +73,8 @@ services:
     environment:
       <<: *model
       SVAAR_VOICE_TURN_MODE: ${SVAAR_VOICE_TURN_MODE:-llm_endpoint}
-      SVAAR_VOICE_TURN_TOKEN: ${SVAAR_VOICE_TURN_TOKEN:?prepare demo env}
-      SVAAR_VOICE_STATUS_SECRET: ${SVAAR_VOICE_STATUS_SECRET:?prepare demo env}
+      SVAAR_VOICE_TURN_TOKEN: ${SVAAR_DEMO_VOICE_TURN_TOKEN:?configure .env fallback values}
+      SVAAR_VOICE_STATUS_SECRET: ${SVAAR_DEMO_VOICE_STATUS_SECRET:?configure .env fallback values}
       SVAAR_GITHUB_WEBHOOK_SECRET: ${SVAAR_GITHUB_WEBHOOK_SECRET:-}
       SVAAR_GITHUB_ENRICHMENT_ENABLED: ${SVAAR_GITHUB_ENRICHMENT_ENABLED:-false}
     command: [uvicorn, "svaar.ingress:create_demo_ingress", --factory, --host, "127.0.0.1", --port, "8001", --no-access-log, --no-proxy-headers]

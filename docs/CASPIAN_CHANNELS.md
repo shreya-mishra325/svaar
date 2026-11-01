@@ -63,14 +63,14 @@ uv run --locked python -m svaar.agent.caspian_smoke --channel email
 
 Only run each listener after authorization to process messages and send replies
 on that exact connection. These commands use the same Render database via the
-ignored .env.render-control (external psycopg URL with sslmode=require), with
-provider settings from .env. They do not deploy a service. Keep PostgreSQL external
+single ignored .env (external psycopg URL with sslmode=require and provider
+settings together). They do not deploy a service. Keep PostgreSQL external
 access limited to the laptop IP and remove it when finished. Check workspace rules
 as well; their effective scope has not been independently verified.
 
 ```bash
-uv run --locked --env-file .env --env-file .env.render-control python -m svaar.gateway --channel slack
-uv run --locked --env-file .env --env-file .env.render-control python -m svaar.gateway --channel discord
+uv run --locked python -m svaar.gateway --channel slack
+uv run --locked python -m svaar.gateway --channel discord
 ```
 
 One channel per process, one terminal per active companion. Each stream has its own

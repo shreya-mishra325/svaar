@@ -1,12 +1,16 @@
-"""Local demo preparation; no publishing, messages or calls."""
+"""Validate the single local .env; legacy explicit export never publishes or calls."""
 
 import argparse
 import json
 import os
 import secrets
+from collections.abc import Sequence
 from pathlib import Path
 
 from dotenv import dotenv_values
+from pydantic import ValidationError
+
+from svaar.config import Settings
 
 # Copy only known provider configuration. Never inherit development DB credentials
 # or flags that can enable external writes.
@@ -63,12 +67,22 @@ def prepare(source: Path, destination: Path) -> None:
         stream.write(content)
 
 
-def main() -> int:
-    """Prepare private demo settings without displaying credentials."""
+def main(argv: Sequence[str] | None = None) -> int:
+    """Validate .env by default; export only to an explicitly requested destination."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=Path(".env"))
-    parser.add_argument("--output", type=Path, default=Path(".env.demo"))
-    args = parser.parse_args()
+    parser.add_argument("--output", type=Path, help="Optional explicit legacy export destination")
+    args = parser.parse_args(argv)
+    if args.output is None:
+        try:
+            Settings(_env_file=args.source)
+        except ValidationError:
+            print(json.dumps({"valid": False, "reason": "configuration_invalid"}))
+            return 1
+        print(
+            json.dumps({"valid": True, "configuration_file": str(args.source), "files_created": 0})
+        )
+        return 0
     try:
         prepare(args.source, args.output)
     except FileExistsError:
