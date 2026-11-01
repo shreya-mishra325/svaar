@@ -36,6 +36,15 @@ def test_demo_env_is_exclusive_private_and_separate_from_development(tmp_path):
         )
         == 3
     )
+    for name in (
+        "POSTGRES_USER",
+        "POSTGRES_DB",
+        "POSTGRES_PASSWORD",
+        "SVAAR_OPERATOR_TOKEN",
+        "SVAAR_VOICE_STATUS_SECRET",
+        "SVAAR_VOICE_TURN_TOKEN",
+    ):
+        assert data["SVAAR_DEMO_" + name.removeprefix("SVAAR_")] == data[name]
     assert stat.S_IMODE(output.stat().st_mode) == 0o600
     before = output.read_bytes()
     with pytest.raises(FileExistsError):

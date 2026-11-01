@@ -41,5 +41,5 @@ jobs:
       - run: uv run --locked pytest
       - run: docker compose config --quiet
       - run: docker compose --profile gateway --profile ci config --quiet
-      - run: uv run --locked python -m svaar.deployment --source .env.example --output .env.demo
-      - run: docker compose --env-file .env.demo -f compose.demo.yaml --profile public --profile chat --profile ci config --quiet
+      - run: uv run --locked python -m svaar.deployment --source .env.example --output .env
+      - run: docker compose --env-file .env -f compose.demo.yaml --profile public --profile chat --profile ci config --quiet

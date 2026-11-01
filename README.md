@@ -1,31 +1,66 @@
 ![Svaar](https://github.com/RohanOnKeys/cerebro/blob/main/assets/Copy%20of%20Svaar.gif?raw=true)
 
-# Svaar
+<h1 align="center">Svaar</h1>
 
-Public deployment target: [one Free Render web service and Free Postgres](docs/RENDER_DEPLOYMENT.md).
-The private Compose deployment remains a fallback; no Cloudflare setup is required for Render.
+<p align="center">
+  <b>The incident agent that checks the facts and picks up the phone.</b>
+</p>
 
-Svaar is a voice-enabled agent for engineering incidents. It lives in team chat, watches CI, rebuilds what happened from recorded events, checks status claims against evidence, calls engineers by phone to verify them, and negotiates conflicting constraints into a plan that deterministic code has validated.
+**Current demo status:** the Render API/database passed public checks. Complete
+chat enrollment, actual Bolna conversations and end-to-end delivery remain
+unverified. See [Render deployment](docs/RENDER_DEPLOYMENT.md) and
+[channel acceptance](docs/CASPIAN_CHANNELS.md). Only the user deploys.
 
-**Models propose, deterministic code enforces, Bolna speaks.**
+---
 
-- **Models** propose. The chat LLM drafts replies and tool calls; typed decisions come from deterministic heuristics or an optional structured classifier on the same chat model.
-- **Deterministic code** validates, authorizes and acts. Nothing a model says runs a tool by itself.
-- **Bolna** is the voice layer. It turns the caller's speech into text, hands it to Svaar, speaks Svaar's reply and reports the final transcript.
+## Incidents run on trust. Most status updates have not earned it.
 
-Svaar has one agent. Chat messages and phone calls reach the same tool loop, the same tool registry and the same approval gate.
+When production breaks, your team chat fills up fast. "Build is green." "Fix is merged." "Should be good now." Half of it is right. Some of it is hopeful. Nobody has time to check, so the incident drags on while everyone assumes someone else has it covered.
 
-Current implementation includes the shared chat/voice agent, identity and confirmation
-gates, signed CI observations, incidents/claims/evidence, guarded jobs, negotiation,
-isolated replay and authenticated Bolna turn/status routes. Most provider-domain
-flows are tested offline; this does not establish live acceptance.
+**Svaar makes sure every update is true.** It joins your team chat, watches your CI, checks what people say against what actually happened, and when the proof is missing, it calls the engineer and asks.
 
-For the current private deployment and verified limits, read
-[DEPLOYMENT.md](docs/DEPLOYMENT.md) and [DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md).
-The local demo API/database/restricted origin are verified; public HTTPS and the
-complete Telegram/GitHub/voice demo remain pending. Cerebro is a reference only.
+## Built for
+
+- **On-call engineers** who want fewer pings and clearer handoffs.
+- **Incident leads** who need one honest picture of where things stand.
+- **Platform teams** who want accountability without adding process.
+
+## What Svaar does for your team
+
+### Spots failures the moment they happen
+Svaar watches your GitHub Actions workflows. When a run fails, it groups related failures into a single incident, assigns a clear owner and alerts them privately. No duplicate tickets, no noisy channel.
+
+### Checks every claim against real evidence
+When someone says "the build passed" or "the fix is merged," Svaar records it and checks it against signed events from GitHub. A claim is marked confirmed only when the evidence backs it up. Silence or missing data never counts against anyone.
+
+### Calls to confirm when the proof is missing
+If the evidence is not there yet, an incident lead can ask Svaar to check. Svaar phones the engineer who made the claim, asks a short, focused question and records their answer. Every call has one purpose and nothing more.
+
+### Follows up so nothing falls through the cracks
+If an owner does not acknowledge an alert in time, Svaar escalates with a call. Cooldowns and daily limits make sure nobody gets spammed.
+
+### Turns competing constraints into a workable plan
+Release windows, staffing and capacity often pull in different directions mid-incident. Svaar weighs them, proposes a plan, validates it against your rules, and lets you test the scenario before anything changes.
 
 ## How it works
+
+```mermaid
+flowchart LR
+    CI["CI fails"] --> Incident["Svaar opens an incident"]
+    Incident --> Alert["Owner alerted in chat"]
+    Alert --> Claim["Someone posts an update"]
+    Claim --> Check{"Evidence?"}
+    Check -- "Yes" --> Confirmed["Claim confirmed"]
+    Check -- "Not yet" --> Call["Svaar calls to verify"]
+    Call --> Answer["Answer recorded"]
+```
+
+1. **Something breaks.** Svaar sees the failed CI run and opens an incident.
+2. **The right person hears about it.** The owner gets a private alert in chat.
+3. **Updates get checked.** Every status claim is matched against real evidence.
+4. **Gaps get closed.** If the proof is missing, Svaar calls the engineer and asks.
+
+### Architecture
 
 ```mermaid
 flowchart TD
@@ -1086,3 +1121,37 @@ first real call (plans/anomaly.md A-028).
 
 
 Additional Caspian channels: see [channel setup and acceptance status](docs/CASPIAN_CHANNELS.md).
+
+## Safe by design
+
+Svaar is built on one rule: **models propose, deterministic code enforces.**
+
+- **AI suggests, rules decide.** The language model drafts replies and suggests actions. Every action is checked by plain, auditable code before anything happens.
+- **Risky actions need a second yes.** Actions like rerunning or cancelling a workflow require the owner to confirm with a one-time code on a separate, verified channel.
+- **Only verified people, only verified phones.** Teammates join with single-use invites and verify their own phone number. Ordinary missions require a verified phone; the initial phone-verification call is the scoped exception.
+- **Fair by default.** An unanswered call, a busy line or missing data never marks someone as wrong.
+- **Private by default.** Transcripts, phone numbers and messages are never written to logs.
+- **Every action counts once.** Duplicate messages, webhooks and calls are detected and ignored, so nothing happens twice.
+
+## Works with your stack
+
+| | |
+| --- | --- |
+| **Chat** | Telegram; private Slack/Discord adapters implemented, live acceptance pending |
+| **CI** | GitHub Actions |
+| **Voice** | Phone calls powered by Bolna |
+| **AI** | Any OpenAI-compatible model with tool calling |
+
+## Getting started
+
+1. **Connect your chat** and invite your team.
+2. **Connect GitHub** so Svaar can watch your workflows.
+3. **Verify phones** so Svaar knows who to call.
+
+These steps describe the intended flow. Complete the live checks above before presenting it as end-to-end acceptance.
+
+---
+
+<p align="center">
+  <b>Svaar</b>: fewer assumptions, faster incidents.
+</p>

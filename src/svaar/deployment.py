@@ -58,6 +58,18 @@ def prepare(source: Path, destination: Path) -> None:
             "CLOUDFLARE_TUNNEL_TOKEN": "",
         }
     )
+    # An explicit export is also a self-contained CI fixture for compose.demo.yaml.
+    # Keep the private fallback namespace aligned with the generated values, never
+    # copy a source database password or Render credentials into that namespace.
+    for name in (
+        "POSTGRES_USER",
+        "POSTGRES_DB",
+        "POSTGRES_PASSWORD",
+        "SVAAR_OPERATOR_TOKEN",
+        "SVAAR_VOICE_STATUS_SECRET",
+        "SVAAR_VOICE_TURN_TOKEN",
+    ):
+        values["SVAAR_DEMO_" + name.removeprefix("SVAAR_")] = values[name]
     # Compose understands single quoted dotenv values; literal newlines are valid.
     content = "# Private generated demo environment. Do not commit or print.\n"
     for key, value in values.items():

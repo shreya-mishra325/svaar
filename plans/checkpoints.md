@@ -1546,3 +1546,30 @@ Git operations were performed. Old evidence below/above retains historical
 filenames and does not instruct current commands. Restart host gateways manually
 with the single .env after stopping the corresponding old process. Only the user
 deploys. This is configuration cleanup, not completion of live channel acceptance.
+
+
+### CI fixture and README reconciliation, 2026-11-02 (A-033)
+
+The user's GitHub screenshot showed pytest and migrations passing but the all-
+profile demo Compose check failing: SVAAR_DEMO_POSTGRES_DB was missing. The
+single-dotenv change updated Compose's fallback variable names but missed the
+explicit CI fixture exporter. Local Git had no unresolved index entries or
+conflict markers; the cached origin/main was older than the live main README.
+
+The exporter now includes the six SVAAR_DEMO_* database/operator/voice values,
+matching its newly generated isolated credentials. CI generates one runner-local
+.env from .env.example and validates every demo profile. It does not use the
+private laptop .env. This same generated-fixture/Compose command passed locally
+in a temporary directory, starting no service. The private .env's digest was
+unchanged. No provider calls or deployments occurred.
+
+Read the live main README through the GitHub connector (read-only) and restored
+its product introduction, incident flow and demo-facing sections while retaining
+the local technical history and single-.env instructions. Kept live acceptance
+limits explicit and corrected the phone_verify exception to the verified-phone
+claim. No Git merge, fetch, stage, commit, push or history modification occurred.
+
+39 focused tests passed without skips. Repository-wide Ruff lint and format
+checks passed (205 files); git diff --check passed. Existing Starlette/httpx
+deprecation warning remains. Remote CI success is pending the user's commit/push
+and new workflow run. The full test suite was not repeated.
