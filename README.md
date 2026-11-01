@@ -98,6 +98,23 @@ Only the restricted ingress belongs behind the named tunnel; operator routes
 and PostgreSQL remain private. A temporary Quick Tunnel is unsuitable for the
 custom LLM because it does not support SSE.
 
+## Local configuration
+
+Use one private .env for all local commands. .env.example is a blank template;
+never overwrite an already configured .env with it. Legacy demo/render/control/
+enrollment/test dotenv files are archived outside the repository. Settings read
+.env automatically; do not layer multiple --env-file arguments.
+
+The current demo .env targets Render's external PostgreSQL URL with required TLS.
+Ordinary host API/gateway/migration commands therefore use that database. The
+fresh local installation steps below assume a local database URL; do not run them
+against the demo by accident. SVAAR_LOCAL_DATABASE_URL preserves the earlier local
+URL as a reference. Docker Compose constructs a separate internal DB URL.
+Private fallback credentials use SVAAR_DEMO_* in the same .env. See
+[Render deployment](docs/RENDER_DEPLOYMENT.md) for dashboard fields; keep its internal
+DB URL unchanged and do not upload the whole private file. Tests require their own
+disposable database via SVAAR_TEST_DATABASE_URL.
+
 ## Install and run locally
 
 Requires Python 3.11+, Docker with Compose, and uv 0.11.29. Dependencies live in `pyproject.toml`; `uv.lock` fixes resolved versions for development, containers and CI.

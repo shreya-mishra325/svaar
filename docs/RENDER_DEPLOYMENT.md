@@ -22,6 +22,20 @@ Use a personal/Hobby workspace without a payment method for the zero-spend demo.
 Stop if Free is unavailable or billing/payment is requested. Existing model/voice
 credits are separate from infrastructure; no real call is authorized by deployment.
 
+## Single local configuration
+
+As of Nov 2, use only .env for local processes and dashboard reference values.
+The former demo/render/control/test/enrollment files were archived outside the
+repository. Sections below dated Oct 31 retain their historical filenames only.
+.env.example is a blank template, not a second active configuration.
+
+The active SVAAR_DATABASE_URL is the TLS external Render URL used from the laptop.
+Keep Render dashboard's existing INTERNAL SVAAR_DATABASE_URL unchanged. Do not
+upload the whole .env: it also contains local/fallback credentials and private
+invite metadata. Private Compose uses SVAAR_DEMO_* credentials for its separate DB.
+SVAAR_TEST_DATABASE_URL must target a fresh disposable test database, never Render.
+Only the user deploys. Consolidation did not change any hosted setting.
+
 ## Startup
 
 Docker Command: python -m svaar.render_start
@@ -77,10 +91,10 @@ file. Then on https://dashboard.render.com/:
    Free DB. If anything is priced or a second DB is proposed, stop.
 3. Enter SVAAR_DATABASE_URL from the existing Render database's Connections
    section, using its Internal Database URL. Also enter these three secrets
-   from the ignored local .env.render:
+   from the single ignored local .env:
    SVAAR_LLM_API_KEY, SVAAR_VOICE_TURN_TOKEN, SVAAR_VOICE_STATUS_SECRET.
-   Values are generated/copied privately by python -m svaar.render_env; no values
-   were printed. Paste just the value, not surrounding dotenv quotes.
+   python -m svaar.render_env validates these fields without creating files or
+   rotating credentials. Paste just the value, not surrounding dotenv quotes.
 4. Confirm SVAAR_DATABASE_URL contains the Internal Database URL, not an
    external URL, database display name or development URL.
    Do not paste a development URL or database password into chat.
@@ -109,10 +123,10 @@ database and cannot be presented as the Render service's chat state.
 
 After public validation, obtain separate authorization for hosted-agent changes:
 - Custom model svaar; base URL https://ACTUAL-HOST/api/v1/voice/llm.
-- Key: SVAAR_VOICE_TURN_TOKEN from .env.render, not the local fallback token.
+- Key: SVAAR_VOICE_TURN_TOKEN from .env, not SVAAR_DEMO_VOICE_TURN_TOKEN.
 - Prompt marker: svaar_call_ref: {{call_ref}}.
 - Status URL https://ACTUAL-HOST/api/v1/voice/status, with
-  X-Svaar-Voice-Status-Secret matching .env.render.
+  X-Svaar-Voice-Status-Secret matching SVAAR_VOICE_STATUS_SECRET in .env.
 
 Warm /ready until it returns 200 before recording or dialing. Do not use an
 automated keepalive loop to pretend Free hosting provides continuous operation.

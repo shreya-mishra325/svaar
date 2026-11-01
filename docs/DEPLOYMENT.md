@@ -59,34 +59,32 @@ locked uv environment.
 
 ```sh
 uv sync --locked
-uv run --locked python -m svaar.deployment --source .env --output .env.demo
-docker compose --env-file .env.demo -f compose.demo.yaml build app
-docker compose --env-file .env.demo -f compose.demo.yaml up -d --wait app ingress
+uv run --locked python -m svaar.deployment
+docker compose --env-file .env -f compose.demo.yaml build app
+docker compose --env-file .env -f compose.demo.yaml up -d --wait app ingress
 ```
 
-Preparation creates a mode-0600 ignored file exclusively; it refuses to overwrite
-an existing file. It copies selected existing provider credentials, generates
-fresh independent database/operator/status/turn secrets, sets production mode
-and leaves CI writes, CI deferral and background business jobs disabled.
-It never copies the development password or database URL. Do not print the file
-or resolved docker compose config. Use config --quiet for validation.
-
-An existing .env.demo is preserved. Edit only required values locally; changing
-POSTGRES_PASSWORD after database initialization does not rotate an existing
-database user. Do not delete the persistent volume to resolve credentials.
+Use the single private .env. The validation command creates no file and rotates
+no credentials. Its SVAAR_DEMO_POSTGRES_* values must match the existing private
+fallback volume. Compose constructs its own internal database URL from those
+values, independent of the active host SVAAR_DATABASE_URL (currently Render).
+Demo operator/voice credentials use SVAAR_DEMO_OPERATOR_TOKEN,
+SVAAR_DEMO_VOICE_STATUS_SECRET and SVAAR_DEMO_VOICE_TURN_TOKEN. Never replace a
+volume's password merely by editing configuration. Do not print resolved Compose
+configuration; use config --quiet for validation.
 
 Required names for the complete demo, without values:
 
-- POSTGRES_USER, POSTGRES_DB, POSTGRES_PASSWORD.
-- SVAAR_DATABASE_URL is synthesized for containers from POSTGRES_*.
-- SVAAR_OPERATOR_TOKEN: private app only.
+- SVAAR_DEMO_POSTGRES_USER, SVAAR_DEMO_POSTGRES_DB, SVAAR_DEMO_POSTGRES_PASSWORD.
+- SVAAR_DATABASE_URL is synthesized for containers from SVAAR_DEMO_POSTGRES_*.
+- SVAAR_DEMO_OPERATOR_TOKEN: mapped to SVAAR_OPERATOR_TOKEN in the private app only.
 - SVAAR_LLM_BASE_URL, SVAAR_LLM_API_KEY, SVAAR_LLM_MODEL; Groq inference.
 - SVAAR_CLASSIFIER_ENABLED: required for meaningful typed voice interpretation.
 - SVAAR_CASPIAN_BASE_URL, SVAAR_CASPIAN_API_KEY,
   SVAAR_CASPIAN_TELEGRAM_CONNECTION_ID, SVAAR_CASPIAN_TELEGRAM_ADDRESS.
 - SVAAR_BOLNA_API_KEY, SVAAR_BOLNA_AGENT_ID: explicit operator dispatch only.
-- SVAAR_VOICE_TURN_MODE=llm_endpoint, SVAAR_VOICE_TURN_TOKEN,
-  SVAAR_VOICE_STATUS_SECRET: restricted origin.
+- SVAAR_VOICE_TURN_MODE=llm_endpoint, SVAAR_DEMO_VOICE_TURN_TOKEN,
+  SVAAR_DEMO_VOICE_STATUS_SECRET: mapped to the restricted origin voice fields.
 - SVAAR_GITHUB_WEBHOOK_SECRET and paired SVAAR_GITHUB_APP_ID,
   SVAAR_GITHUB_PRIVATE_KEY_B64 for live CI/log reads.
 - CLOUDFLARE_TUNNEL_TOKEN: tunnel container only.
@@ -102,7 +100,7 @@ approved. Keep SVAAR_ALLOW_SAME_CHANNEL_CONFIRMATION=false.
 1. Named tunnel: in the [Cloudflare dashboard](https://dash.cloudflare.com/), open
    Networking > Tunnels > Create Tunnel. Use an existing Cloudflare-managed domain;
    [a domain is required to publish](https://developers.cloudflare.com/tunnel/get-started/).
-   Save the connector token locally as CLOUDFLARE_TUNNEL_TOKEN in .env.demo.
+   Save the connector token locally as CLOUDFLARE_TUNNEL_TOKEN in .env.
    Under Routes > Add route > Published application choose a hostname and origin
    http://127.0.0.1:8001. Do not point it at app:8000 or port 18000.
    Do not buy a domain or paid plan without approval.
@@ -117,10 +115,11 @@ approved. Keep SVAAR_ALLOW_SAME_CHANNEL_CONFIRMATION=false.
    secret. Set the explicit installation/repository/org/owner mapping locally.
    Enable CI deferral and start the ci profile only when App credentials are ready.
 5. The user configures the Bolna agent: custom model svaar, base URL
-   https://HOST/api/v1/voice/llm, key from SVAAR_VOICE_TURN_TOKEN; prompt line
+   https://HOST/api/v1/voice/llm, key from SVAAR_DEMO_VOICE_TURN_TOKEN for this fallback; prompt line
    svaar_call_ref: {{call_ref}}. Status URL is
    https://HOST/api/v1/voice/status, with header X-Svaar-Voice-Status-Secret from
-   the matching .env.demo value. Do not reuse the old .env callback secret.
+   the matching SVAAR_DEMO_VOICE_STATUS_SECRET value in .env. For the Render
+   deployment use the active SVAAR_VOICE_STATUS_SECRET instead.
 6. Each live call requires explicit approval for the exact call ID and intended
    recipient. Use phone_verify for initial proof of phone ownership. The operator
    dispatch CLI enforces readiness, mission/recipient checks and daily limits.
@@ -131,9 +130,9 @@ and explicit approvals. Never paste tokens, private keys or phone numbers in cha
 ## Commands after the corresponding authorization
 
 ```sh
-docker compose --env-file .env.demo -f compose.demo.yaml --profile public up -d tunnel
-docker compose --env-file .env.demo -f compose.demo.yaml --profile chat up -d --wait gateway
-docker compose --env-file .env.demo -f compose.demo.yaml --profile ci up -d --wait ci-worker
+docker compose --env-file .env -f compose.demo.yaml --profile public up -d tunnel
+docker compose --env-file .env -f compose.demo.yaml --profile chat up -d --wait gateway
+docker compose --env-file .env -f compose.demo.yaml --profile ci up -d --wait ci-worker
 ```
 
 When credentials/flags change, recreate affected services. Do not expect restart
@@ -143,12 +142,12 @@ tunnel too: it must join the new ingress namespace.
 ## Health and diagnostics
 
 ```sh
-docker compose --env-file .env.demo -f compose.demo.yaml ps
-docker compose --env-file .env.demo -f compose.demo.yaml exec -T app alembic current
-docker compose --env-file .env.demo -f compose.demo.yaml exec -T app alembic check
-docker compose --env-file .env.demo -f compose.demo.yaml exec -T gateway python -m svaar.gateway --status
-docker compose --env-file .env.demo -f compose.demo.yaml exec -T ci-worker python -m svaar.jobs --status
-docker compose --env-file .env.demo -f compose.demo.yaml logs --tail 80 app ingress gateway ci-worker
+docker compose --env-file .env -f compose.demo.yaml ps
+docker compose --env-file .env -f compose.demo.yaml exec -T app alembic current
+docker compose --env-file .env -f compose.demo.yaml exec -T app alembic check
+docker compose --env-file .env -f compose.demo.yaml exec -T gateway python -m svaar.gateway --status
+docker compose --env-file .env -f compose.demo.yaml exec -T ci-worker python -m svaar.jobs --status
+docker compose --env-file .env -f compose.demo.yaml logs --tail 80 app ingress gateway ci-worker
 ```
 
 GET http://127.0.0.1:18000/health and /ready are private probes. /ready verifies SQL
@@ -182,11 +181,11 @@ messages and identity information.
 
 ```sh
 mkdir -p .cache/deployment
-docker compose --env-file .env.demo -f compose.demo.yaml exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > .cache/deployment/demo.dump
+docker compose --env-file .env -f compose.demo.yaml exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > .cache/deployment/demo.dump
 docker image tag svaar:demo svaar:demo-before-update
-docker compose --env-file .env.demo -f compose.demo.yaml build app
-docker compose --env-file .env.demo -f compose.demo.yaml run --rm migrate
-docker compose --env-file .env.demo -f compose.demo.yaml up -d --wait app ingress
+docker compose --env-file .env -f compose.demo.yaml build app
+docker compose --env-file .env -f compose.demo.yaml run --rm migrate
+docker compose --env-file .env -f compose.demo.yaml up -d --wait app ingress
 ```
 
 Stop the tunnel/chat/CI profiles before a risky update, after reviewing any
