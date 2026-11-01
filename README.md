@@ -6,6 +6,11 @@
   <b>The incident agent that checks the facts and picks up the phone.</b>
 </p>
 
+**Current demo status:** the Render API/database passed public checks. Complete
+chat enrollment, actual Bolna conversations and end-to-end delivery remain
+unverified. See [Render deployment](docs/RENDER_DEPLOYMENT.md) and
+[channel acceptance](docs/CASPIAN_CHANNELS.md). Only the user deploys.
+
 ---
 
 ## Incidents run on trust. Most status updates have not earned it.
@@ -515,25 +520,10 @@ Compose configuration. Container build and startup should also be checked locall
 
 ## Implementation history
 
-Earlier notes below describe the scope when each feature was introduced. Their
-pending-work statements are historical; use the deployment guide and latest
-checkpoints for current implementation and live acceptance.
-
-### Internal shared voice runner
-
-Application composition exposes app.state.voice_turn_runner when the LLM is
-configured. VoiceRuntime owns persistence and calls the injected VoiceAgentExecutor;
-agent and voice implementations never import each other. Both chat and voice use
-the same AgentLoop, registry and action gates. No Bolna route or real call is enabled.
-
-Migration 0005 adds ordinary voice_calls and voice_turns. Internal calls must be
-active and tied to the intended organization, principal and still-verified phone
-binding. The internal phone_verify challenge exception is described below; live code delivery remains pending.
-The runtime accepts a server-resolved internal call ID, text and stable zero-based
-turn_index. Missing/gapped indices or changed duplicate payloads refuse execution;
-completed retries reuse their saved reply. Text alone is never a retry key.
-A per-call advisory lock survives action commits. Processing/unknown outcomes
-require review and never repeat tools automatically.
+Detailed implementation notes are preserved in
+[the implementation history](docs/IMPLEMENTATION_HISTORY.md).
+They describe earlier milestones; use [Render deployment](docs/RENDER_DEPLOYMENT.md)
+and [channel acceptance](docs/CASPIAN_CHANNELS.md) for current setup and limitations.
 
 ## Safe by design
 
@@ -541,7 +531,7 @@ Svaar is built on one rule: **models propose, deterministic code enforces.**
 
 - **AI suggests, rules decide.** The language model drafts replies and suggests actions. Every action is checked by plain, auditable code before anything happens.
 - **Risky actions need a second yes.** Actions like rerunning or cancelling a workflow require the owner to confirm with a one-time code on a separate, verified channel.
-- **Only verified people, only verified phones.** Teammates join with single-use invites and verify their own phone number. Svaar never calls an unverified number.
+- **Only verified people, only verified phones.** Teammates join with single-use invites and verify their own phone number. Ordinary missions require a verified phone; the initial phone-verification call is the scoped exception.
 - **Fair by default.** An unanswered call, a busy line or missing data never marks someone as wrong.
 - **Private by default.** Transcripts, phone numbers and messages are never written to logs.
 - **Every action counts once.** Duplicate messages, webhooks and calls are detected and ignored, so nothing happens twice.
@@ -550,7 +540,7 @@ Svaar is built on one rule: **models propose, deterministic code enforces.**
 
 | | |
 | --- | --- |
-| **Chat** | Telegram |
+| **Chat** | Telegram; private Slack/Discord adapters implemented, live acceptance pending |
 | **CI** | GitHub Actions |
 | **Voice** | Phone calls powered by Bolna |
 | **AI** | Any OpenAI-compatible model with tool calling |
@@ -561,7 +551,7 @@ Svaar is built on one rule: **models propose, deterministic code enforces.**
 2. **Connect GitHub** so Svaar can watch your workflows.
 3. **Verify phones** so Svaar knows who to call.
 
-That is it. The next time CI fails, Svaar is on it.
+These steps describe the intended flow. Complete the live checks above before presenting it as end-to-end acceptance.
 
 ---
 
